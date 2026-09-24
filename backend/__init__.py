@@ -1,1 +1,1 @@
-"""Journey Seeking backend package."""
+"""觅旅（MiliTravel）backend package."""

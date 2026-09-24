@@ -1,4 +1,4 @@
-"""FastAPI entry point for the Journey Seeking backend."""
+"""FastAPI entry point for the 觅旅（MiliTravel）backend."""
 
 from typing import Literal
 
@@ -14,9 +14,9 @@ from .moma_client import (
 
 
 app = FastAPI(
-    title="Journey Seeking API",
+    title="觅旅 MiliTravel API",
     version="0.1.0",
-    description="智旅云图旅行规划平台后端 API",
+    description="觅旅旅行规划平台后端 API",
 )
 
 

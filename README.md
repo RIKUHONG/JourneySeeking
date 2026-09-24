@@ -1,6 +1,6 @@
-# JourneySeeking
+# 觅旅（MiliTravel）
 
-JourneySeeking 是智旅云图的业务后端。当前仓库包含已经验证过的 FastAPI → `MomaClient` → MoMA → FastAPI 基础链路，并以此为基础逐步接入结构化行程生成、地图、天气和后续 Agent 编排。
+觅旅是旅行规划业务后端。当前仓库包含已经验证过的 FastAPI → `MomaClient` → MoMA → FastAPI 基础链路，并以此为基础逐步接入结构化行程生成、地图、天气和后续 Agent 编排。
 
 ## 当前阶段
 
