@@ -1,0 +1,16 @@
+.env
+backend/.env
+__pycache__/
+backend/__pycache__/
+*.py[cod]
+.idea/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.log
+
+# Local/reference material is intentionally kept outside the collaborative repo.
+repo_inspect_20260923/
+
+.venv/
+backend/.venv/
