@@ -8,7 +8,7 @@ from typing import Any, Iterable, Mapping
 
 import requests
 
-from .config import Settings, settings
+from .config.settings import Settings, settings
 
 
 class MomaError(RuntimeError):

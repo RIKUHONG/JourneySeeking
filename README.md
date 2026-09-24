@@ -1,6 +1,6 @@
 # 觅旅（MiliTravel）
 
-觅旅是旅行规划业务后端。新增业务代码统一以根目录 `app/`、`tests/` 为开发基线；当前仓库同时保留已经验证过的 `backend/` FastAPI → `MomaClient` → MoMA → FastAPI 基础链路，迁移完成前作为兼容参考。
+觅旅是包含前后端的旅行规划项目。后端新增业务代码统一以 `backend/app/`、`backend/tests/` 为开发基线；根目录不放后端 `app/`，未来可在根目录增加前端目录。当前 `backend/` 包含已经验证过的 FastAPI → `MomaClient` → MoMA → FastAPI 基础链路。
 
 ## 当前阶段
 

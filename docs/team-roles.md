@@ -11,7 +11,7 @@
 
 分支：feature/api-contract
 创建：git checkout -b feature/api-contract
-开发基线：`app/api/`、`app/models/`、`app/services/trip_service.py`、`tests/api/`
+开发基线：`backend/app/api/`、`backend/app/models/`、`backend/app/services/trip_service.py`、`backend/tests/api/`
 Issue 标题：[成员A][P0] 实现 TripRequest、Itinerary 和行程生成 API
 Issue 范围：定义 TripRequest、Activity、DayPlan、Itinerary；实现 POST /api/trip/generate 和 TripService；校验 MoMA JSON；统一错误响应；补充 API/异常测试；按需更新接口契约。不包括高德、天气、Agent 和前端。
 验收标准：
@@ -27,7 +27,7 @@ PR 标题：feat(api): add trip generation contract and validation。PR 必须�
 
 分支：feature/moma-itinerary-generator
 创建：git checkout -b feature/moma-itinerary-generator
-开发基线：`app/services/itinerary_generator.py`、`app/services/prompt_builder.py`、`app/integrations/moma_client.py`、`tests/moma/`
+开发基线：`backend/app/services/itinerary_generator.py`、`backend/app/services/prompt_builder.py`、`backend/app/integrations/moma_client.py`、`backend/tests/moma/`
 Issue 标题：[成员B][P0] 实现 MoMA 结构化行程生成与响应解析
 Issue 范围：实现 PromptBuilder、ItineraryGenerator；约束 MoMA 输出 JSON；处理 Markdown 代码块、空响应、非法 JSON、字段缺失和类型错误；实现受控重试/一次修复；提供 mock 客户端和正常/非法/边界 fixtures。不包括 HTTP 路由、地图、天气和 Agent。
 验收标准：
@@ -44,7 +44,7 @@ PR 标题：feat(moma): generate and parse structured itineraries。PR 必须关
 
 分支：feature/external-service-foundation
 创建：git checkout -b feature/external-service-foundation
-开发基线：`app/integrations/amap_client.py`、`app/integrations/weather_client.py`、`app/config/settings.py`、`tests/integrations/`
+开发基线：`backend/app/integrations/amap_client.py`、`backend/app/integrations/weather_client.py`、`backend/app/config/settings.py`、`backend/tests/integrations/`
 Issue 标题：[成员C][P1] 建立地图、天气服务抽象和配置基础设施
 Issue 范围：定义 MapService/WeatherService；创建 amap_client.py 和 weather_client.py；加入超时、错误转换、重试、离线 mock、.env.example/settings、外部服务测试和配置文档。不包括修改 MoMA Prompt 和完整 Agent。
 验收标准：
