@@ -12,7 +12,7 @@ except ImportError:  # pragma: no cover
 if load_dotenv is not None:
     # Resolve the project-local file explicitly so startup works from either
     # the repository root or the backend directory.
-    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+    load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 
 @dataclass(frozen=True)
