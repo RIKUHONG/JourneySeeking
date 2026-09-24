@@ -9,8 +9,8 @@
 
 ## 成员 A：API、模型与行程校验
 
-分支：feature/trip-api-contract
-创建：git checkout -b feature/trip-api-contract
+分支：feature/api-contract
+创建：git checkout -b feature/api-contract
 Issue 标题：[成员A][P0] 实现 TripRequest、Itinerary 和行程生成 API
 Issue 范围：定义 TripRequest、Activity、DayPlan、Itinerary；实现 POST /api/trip/generate 和 TripService；校验 MoMA JSON；统一错误响应；补充 API/异常测试；按需更新接口契约。不包括高德、天气、Agent 和前端。
 验收标准：
@@ -75,7 +75,7 @@ P0 链路稳定前，不创建改变核心数据契约的 Agent 分支。
 
 | 成员 | 分支 | 主要 Issue | 主要 PR |
 |---|---|---|---|
-| A | feature/trip-api-contract | 模型、API、校验 | feat(api): add trip generation contract and validation |
+| A | feature/api-contract | 模型、API、校验 | feat(api): add trip generation contract and validation |
 | B | feature/moma-itinerary-generator | Prompt、解析、重试、mock | feat(moma): generate and parse structured itineraries |
 | C | feature/external-service-foundation | 地图、天气、配置、降级 | feat(integrations): add map weather abstractions and configuration |
 
