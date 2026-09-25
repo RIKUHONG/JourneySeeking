@@ -46,6 +46,13 @@ class TripService:
             content = self.generator.generate(request)
         except TimeoutError as exc:
             raise MomaTimeoutError() from exc
+        except Exception as exc:
+            code = getattr(exc, "code", None)
+            if code == "MOMA_TIMEOUT":
+                raise MomaTimeoutError() from exc
+            if code == "MOMA_INVALID_RESPONSE":
+                raise MomaInvalidResponseError() from exc
+            raise
 
         if not isinstance(content, str) or not content.strip():
             raise MomaInvalidResponseError()
