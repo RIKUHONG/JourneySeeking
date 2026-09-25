@@ -1,0 +1,3 @@
+```json
+{"destination":"杭州","start_date":"2026-10-01","end_date":"2026-10-03","summary":"三日行程","days":[],"total_estimated_cost":0}
+```
