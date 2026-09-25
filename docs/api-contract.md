@@ -95,7 +95,7 @@ HTTP 状态码为 `200 OK` 时返回 `Itinerary`。`days` 必须覆盖请求日�
 | `days[].activities[].location` | string/null | 活动地点。 |
 | `days[].activities[].duration_minutes` | integer/null | 活动时长，提供时必须大于 `0`。 |
 | `days[].activities[].estimated_cost` | number | 活动预计费用，必须大于等于 `0`。 |
-| `total_estimated_cost` | number | 行程预计总费用，必须大于等于 `0`。 |
+| `total_estimated_cost` | number | 行程预计总费用，必须大于等于 `0`，且不能小于已列活动预计费用之和。可包含尚未单独列出的住宿、交通等费用。 |
 
 第一版统一使用 `activities` 表示每日安排。景点、餐饮、住宿、交通、天气和预算拆分字段属于后续兼容扩展；新增这些字段不能改变现有字段含义。
 
