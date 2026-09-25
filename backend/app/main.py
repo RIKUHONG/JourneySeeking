@@ -5,7 +5,7 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from .moma_client import (
+from .integrations.moma_client import (
     MomaAuthenticationError,
     MomaClient,
     MomaError,

@@ -7,9 +7,9 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-import requests
+import httpx
 
-from .config.settings import Settings, settings
+from ..config.settings import Settings, settings
 
 
 class MomaError(RuntimeError):
@@ -28,6 +28,10 @@ class MomaServiceError(MomaError):
     """The upstream MoMA service returned an error."""
 
 
+class MomaTimeoutError(MomaServiceError):
+    """The upstream MoMA request timed out after retries."""
+
+
 @dataclass(frozen=True)
 class MomaResult:
     content: str
@@ -40,10 +44,10 @@ class MomaResult:
 class MomaClient:
     """Call MoMA without exposing the API key or reasoning field to callers."""
 
-    def __init__(self, config: Settings = settings, session: requests.Session | None = None) -> None:
+    def __init__(self, config: Settings = settings, session: httpx.Client | None = None) -> None:
         config.validate_moma()
         self.config = config
-        self.session = session or requests.Session()
+        self.session = session or httpx.Client()
 
     def chat(
         self,
@@ -66,7 +70,7 @@ class MomaClient:
             "Content-Type": "application/json",
         }
 
-        last_response: requests.Response | None = None
+        last_response: Any | None = None
         for attempt in range(self.config.moma_max_retries + 1):
             try:
                 response = self.session.post(
@@ -75,7 +79,12 @@ class MomaClient:
                     json=payload,
                     timeout=self.config.moma_timeout_seconds,
                 )
-            except requests.RequestException as exc:
+            except httpx.TimeoutException as exc:
+                if attempt >= self.config.moma_max_retries:
+                    raise MomaTimeoutError(f"MoMA 网络请求超时：{exc}") from exc
+                time.sleep(2**attempt)
+                continue
+            except httpx.RequestError as exc:
                 if attempt >= self.config.moma_max_retries:
                     raise MomaServiceError(f"MoMA 网络请求失败：{exc}") from exc
                 time.sleep(2**attempt)
@@ -85,7 +94,9 @@ class MomaClient:
             if response.status_code == 200:
                 return self._parse_response(response)
             if response.status_code in (401, 403):
-                raise MomaAuthenticationError(f"MoMA 认证或权限失败（HTTP {response.status_code}）。")
+                raise MomaAuthenticationError(
+                    f"MoMA 认证或权限失败（HTTP {response.status_code}）。"
+                )
             if response.status_code == 429:
                 if attempt < self.config.moma_max_retries:
                     time.sleep(2**attempt)
@@ -101,7 +112,7 @@ class MomaClient:
         raise MomaServiceError(f"MoMA 服务调用失败（HTTP {status}）：{detail}")
 
     @staticmethod
-    def _parse_response(response: requests.Response) -> MomaResult:
+    def _parse_response(response: Any) -> MomaResult:
         try:
             body = response.json()
             content = body["choices"][0]["message"].get("content")
@@ -109,10 +120,12 @@ class MomaClient:
                 raise MomaServiceError(
                     "MoMA 未返回最终回答，可能是 max_tokens 太小导致推理未完成。"
                 )
+        except MomaServiceError:
+            raise
         except (ValueError, KeyError, IndexError, TypeError) as exc:
             raise MomaServiceError("MoMA 返回了无法解析的响应。") from exc
         return MomaResult(
-            content=str(content),
+            content=content,
             model=body.get("model"),
             request_id=response.headers.get("x-request-id") or body.get("id"),
             usage=body.get("usage") or {},
@@ -120,8 +133,8 @@ class MomaClient:
         )
 
     @staticmethod
-    def _safe_error_detail(response: requests.Response | None) -> str:
+    def _safe_error_detail(response: Any | None) -> str:
         if response is None:
             return "没有收到响应。"
-        text = response.text.strip()
+        text = str(getattr(response, "text", "")).strip()
         return text[:500] if text else "服务端未返回错误正文。"
