@@ -1,0 +1,12 @@
+{
+  "destination": "杭州",
+  "start_date": "2026-10-01",
+  "end_date": "2026-10-03",
+  "summary": "三日行程",
+  "days": [
+    {"date": "2026-10-01", "title": "西湖", "activities": []},
+    {"date": "2026-10-02", "title": "文化", "activities": []},
+    {"date": "2026-10-03", "title": "美食", "activities": []}
+  ],
+  "total_estimated_cost": 0
+}

@@ -7,6 +7,7 @@ from backend.app.services.itinerary_generator import (
     ItineraryGenerationError,
     ItineraryGenerator,
 )
+from backend.app.integrations.mock_moma_client import MockMomaClient
 
 VALID_ITINERARY = {
     "destination": "杭州",
@@ -190,3 +191,10 @@ def test_generate_does_not_repair_more_than_configured_limit():
 
     assert exc_info.value.code == "MOMA_INVALID_RESPONSE"
     assert len(client.calls) == 2
+
+
+def test_offline_mock_client_matches_moma_chat_shape():
+    client = MockMomaClient([json.dumps(VALID_ITINERARY, ensure_ascii=False)])
+    result = ItineraryGenerator(client=client).generate(make_trip_request())
+    assert json.loads(result) == VALID_ITINERARY
+    assert len(client.calls) == 1
