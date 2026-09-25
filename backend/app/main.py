@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from typing import Literal
+
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from .models.schemas import ErrorResponse, Itinerary, TripRequest
 from .services.trip_service import TripService, TripServiceError
@@ -54,3 +57,40 @@ def health() -> dict[str, str]:
 @app.post("/api/trip/generate", response_model=Itinerary)
 def generate_trip(request: TripRequest, service: TripService = Depends(get_trip_service)) -> Itinerary:
     return service.generate(request)
+
+
+class ChatMessage(BaseModel):
+    role: Literal["system", "user", "assistant"]
+    content: str = Field(min_length=1, max_length=32_000)
+
+
+class ChatRequest(BaseModel):
+    messages: list[ChatMessage] = Field(min_length=1, max_length=50)
+    max_tokens: int = Field(default=1024, ge=1, le=8192)
+    temperature: float = Field(default=0.2, ge=0, le=2)
+    top_p: float = Field(default=0.9, gt=0, le=1)
+
+
+class ChatResponse(BaseModel):
+    content: str
+    model: str | None = None
+    request_id: str | None = None
+    usage: dict = Field(default_factory=dict)
+
+
+@app.post("/api/chat", response_model=ChatResponse)
+def chat(request: ChatRequest) -> ChatResponse:
+    from .integrations.moma_client import MomaClient
+
+    result = MomaClient().chat(
+        [message.model_dump() for message in request.messages],
+        max_tokens=request.max_tokens,
+        temperature=request.temperature,
+        top_p=request.top_p,
+    )
+    return ChatResponse(
+        content=result.content,
+        model=result.model,
+        request_id=result.request_id,
+        usage=dict(result.usage),
+    )
