@@ -12,7 +12,6 @@ from .moma_client import (
     MomaRateLimitError,
 )
 
-
 app = FastAPI(
     title="觅旅 MiliTravel API",
     version="0.1.0",
