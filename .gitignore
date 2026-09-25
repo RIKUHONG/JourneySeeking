@@ -8,6 +8,7 @@ backend/__pycache__/
 .mypy_cache/
 .ruff_cache/
 *.log
+*.egg-info/
 
 # Local/reference material is intentionally kept outside the collaborative repo.
 repo_inspect_20260923/
