@@ -1,7 +1,7 @@
 """Application configuration loaded from environment variables."""
 
-from dataclasses import dataclass
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 try:
@@ -17,7 +17,9 @@ if load_dotenv is not None:
 
 @dataclass(frozen=True)
 class Settings:
-    moma_api_url: str = os.getenv("MOMA_API_URL", "https://zhenze-huhehaote.cmecloud.cn/v1/chat/completions")
+    moma_api_url: str = os.getenv(
+        "MOMA_API_URL", "https://zhenze-huhehaote.cmecloud.cn/v1/chat/completions"
+    )
     moma_model: str = os.getenv("MOMA_MODEL", "deepseek-v4-flash-0731")
     moma_api_key: str = os.getenv("MOMA_API_KEY", "").strip()
     moma_timeout_seconds: float = float(os.getenv("MOMA_TIMEOUT_SECONDS", "60"))
