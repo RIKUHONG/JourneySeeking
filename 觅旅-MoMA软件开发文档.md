@@ -8,6 +8,12 @@
 参考项目：`tutu-zzz/zhilv-yuntu`  
 目标平台：移动云 MoMA
 
+## 当前阶段说明（2026-09-26）
+
+本文档描述 V1.0 长期目标；功能清单、七周计划和比赛演示脚本不代表当前代码已实现。当前仓库已完成 P0 的结构化行程生成链路，以及成员 C 的 P1 高德/天气客户端、接口、配置和离线 mock。地图与天气尚未接入行程生成 API，`/api/weather/forecast` 等后续接口也尚未实现。
+
+接下来两个 P1 Issue 均由成员 C 负责，依次为高德地点搜索与路线补全、天气预报与行程建议。实施范围、验收标准见 `docs/team-roles.md`；现行 HTTP 字段与错误码以 `docs/api-contract.md` 为准；本地运行与实际环境变量以 `README.md`、`backend/.env.example` 为准。
+
 ---
 
 ## 1. 文档说明
@@ -892,6 +898,8 @@ DELETE /api/trip/{trip_id}
 
 ### 13.4 天气接口
 
+以下为目标接口，当前版本尚未提供。P1 天气任务需先评审其是否作为独立接口实现，以及预报天数、城市参数和缺失日期的响应契约。
+
 ```text
 GET /api/weather/forecast?city=厦门&start_date=2026-10-01&end_date=2026-10-05
 ```
@@ -967,7 +975,7 @@ GET /ready
 ✓ 完成目的地识别 —— Fast Model
 ✓ 检索厦门亲子攻略 —— Retrieval Agent
 ✓ 获取 18 个真实 POI —— 高德地图工具
-✓ 查询 5 天天气 —— Weather Agent
+✓ 查询可用预报天数内的天气 —— Weather Agent
 ✓ 生成多日行程 —— Planner Model
 ✓ 校验预算、路线和约束 —— Critic Agent
 ```
@@ -1149,6 +1157,8 @@ services:
 
 ### 19.2 环境变量
 
+以下是目标部署配置示意，不等同于当前代码已读取的变量。当前可用变量及默认值以 `backend/.env.example` 为准。
+
 ```text
 MOMA_API_KEY=
 MOMA_BASE_URL=
@@ -1239,6 +1249,8 @@ ENVIRONMENT=production
 - [ ] 接入 Query Rewrite 和 Rerank；
 - [ ] 接入高德 POI、地图和天气；
 - [ ] 实现真实 POI 回填。
+
+当前 P1 执行顺序：成员 C 已完成地图/天气客户端与离线 mock；下一步先完成 POI 核实和路线补全的业务接入，再完成天气日期匹配和建议。两个任务分别使用独立 Issue 与 PR。高德预报客户端当前最多返回 4 天；3—7 天行程中超出范围的日期保持天气未知。RAG、Agent 与多轮修改仍属后续阶段。
 
 ### 第 5 周：Agent 和上下文
 
@@ -1388,4 +1400,3 @@ MoMA 智能路由
 1. MoMA 的多模型调度确实改善了质量、成本、延迟或稳定性；
 2. 上下文管理让 Agent 能够在真实多轮业务中保持约束和状态；
 3. Agent 能够调用真实工具并经过业务规则校验，输出可执行而不是只会聊天的旅行方案。
-
