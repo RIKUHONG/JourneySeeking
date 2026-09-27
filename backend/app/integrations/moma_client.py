@@ -53,7 +53,7 @@ class MomaClient:
         self,
         messages: Iterable[Mapping[str, str]],
         *,
-        max_tokens: int = 1024,
+        max_tokens: int = 4096,
         temperature: float = 0.2,
         top_p: float = 0.9,
     ) -> MomaResult:

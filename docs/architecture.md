@@ -2,7 +2,7 @@
 
 ## 目录基线
 
-后端业务代码统一放在 `backend/app/`，测试统一放在 `backend/tests/`。以下列出当前已存在的主要文件；P1 业务接入服务尚未创建。
+后端业务代码统一放在 `backend/app/`，测试统一放在 `backend/tests/`。地图 P1 业务接入位于 `backend/app/services/map_enrichment.py`，天气业务接入仍待开发。
 
 ```text
 Journey_Seeking/
@@ -10,7 +10,7 @@ Journey_Seeking/
 │   ├── app/
 │   │   ├── main.py                    # 当前 HTTP 路由与依赖注入
 │   │   ├── models/schemas.py          # TripRequest、Itinerary 等 P0 契约
-│   │   ├── services/                  # 行程生成与校验；P1 补全逻辑将放在此处
+│   │   ├── services/                  # 行程生成、校验与地图补全编排
 │   │   ├── integrations/              # MoMA、高德、天气客户端、接口及 mock
 │   │   └── config/settings.py
 │   ├── tests/                          # api/、moma/、integrations/
@@ -33,7 +33,7 @@ Journey_Seeking/
 
 ## P1 数据流与降级
 
-当前链路是 `TripRequest → MoMA 生成 → TripService 校验 → Itinerary`。P1 接入后，地点、路线和天气只处理已经通过 P0 校验的行程，按需补充可核实的信息；现有必填字段与校验仍然有效。
+当前链路是 `TripRequest → MoMA 生成 → TripService 校验 → 地图可选补全 → Itinerary`。地点、路线和天气只处理已经通过 P0 校验的行程，按需补充可核实的信息；现有必填字段与校验仍然有效。
 
 - 地点搜索返回零结果与供应商失败是两种不同状态；没有可靠 POI 时保留原活动，不写入伪造的 ID 或坐标。
 - 路线要求已知起终点坐标，距离和耗时只能来自对应交通方式的高德结果；缺失路线时保留基础行程。

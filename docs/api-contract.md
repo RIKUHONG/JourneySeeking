@@ -139,15 +139,18 @@ HTTP 状态码为 `200 OK` 时返回 `Itinerary`。`days` 必须覆盖请求日�
 - 所有请求应支持 `request_id` 追踪；内部错误不得泄露给用户。
 - 新字段优先向后兼容，删除或改名必须经过 PR 评审。
 
-## P1 地图与天气接入约束（规划中，尚未实现）
+## P1 地图与天气接入约束
 
-当前 `POST /api/trip/generate` 不调用高德地图或天气服务，成功响应不包含 POI、路线、天气或补全状态字段。下面是成员 C 的两个 P1 Issue 的设计约束，不代表这些字段或行为已经上线。每个 Issue 在实现前须与成员 A 确认对外响应方式、更新本契约及测试，并保持现有请求与 `Itinerary` 必填字段向后兼容。
+地图业务接入后，`POST /api/trip/generate` 在有可注入地图服务时会对 P0 基础行程执行可选补全。所有新增字段均为向后兼容字段；没有地图 Key、搜索失败或路线失败时仍返回基础行程。
 
 ### 地点与路线
 
 - POI ID、地址和坐标必须来自可核实的高德搜索结果；匹配失败、结果歧义或缺少坐标时，不能把活动标记为已核实。
 - 路线估算必须有可靠起终点坐标，并保留交通方式、距离及耗时来源；无路线时不得推算成高德结果。
-- 零搜索结果、部分补全和地图服务错误需要区分。约定为可选补全的部分应保留基础行程；若增加补全状态、告警或独立查询接口，须先定义其字段与错误行为。
+- `Activity.poi_status` 可为 `not_attempted`、`verified`、`not_found`、`ambiguous` 或 `unavailable`；已核实时填充 `poi_id`、`address`、`latitude`、`longitude` 和 `map_source`。
+- `Activity.route_status` 可为 `not_attempted`、`verified`、`missing_coordinates` 或 `unavailable`；路线结果放在 `route_from_previous`，包含 `mode`、`distance_meters`、`duration_seconds` 和 `source`。
+- `Itinerary.map_enrichment_status` 可为 `not_attempted`、`completed`、`partial` 或 `unavailable`。
+- POI 匹配只接受唯一的规范化名称精确匹配，不因名称相似而猜测；零结果、歧义、部分补全和地图服务错误均保留基础行程并区分状态。
 
 ### 天气与建议
 
@@ -155,4 +158,4 @@ HTTP 状态码为 `200 OK` 时返回 `Itinerary`。`days` 必须覆盖请求日�
 - 雨天等建议必须依据实际预报，不得把天气未知解释为晴天，也不能凭天气推断景点营业状态。
 - 天气不可用时保留基础行程；若增加天气、建议或缺失状态字段，须先定义可选性、日期对齐和兼容行为。
 
-`MAP_SERVICE_ERROR`、`WEATHER_SERVICE_ERROR` 目前是预留错误码。P1 接入时需明确哪些请求应返回 `502`，哪些请求返回基础行程与补全缺失信息；不能仅因适配器存在就宣称接口会返回这两个错误码。
+地图业务接入采用可选补全降级策略：`MAP_SERVICE_ERROR` 不直接让行程生成请求失败，服务错误映射为 `unavailable` 状态并返回 P0 基础行程。`WEATHER_SERVICE_ERROR` 仍由天气任务另行定义；不能仅因适配器存在就宣称接口会返回该错误码。

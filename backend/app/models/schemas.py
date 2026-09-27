@@ -39,6 +39,27 @@ class Activity(BaseModel):
     location: str | None = None
     duration_minutes: int | None = Field(default=None, strict=True, gt=0)
     estimated_cost: Money
+    poi_id: str | None = Field(default=None, description="已核实的高德 POI 标识")
+    address: str | None = Field(default=None, description="已核实 POI 地址")
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    poi_status: Literal["not_attempted", "verified", "not_found", "ambiguous", "unavailable"] = (
+        "not_attempted"
+    )
+    map_source: str | None = Field(default=None, description="地图数据来源")
+    route_from_previous: "RouteInfo | None" = None
+    route_status: Literal["not_attempted", "verified", "missing_coordinates", "unavailable"] = (
+        "not_attempted"
+    )
+
+
+class RouteInfo(BaseModel):
+    """相邻活动之间由地图服务返回的路线估算。"""
+
+    mode: Literal["driving", "walking"]
+    distance_meters: int = Field(ge=0)
+    duration_seconds: int = Field(ge=0)
+    source: str = "amap"
 
 
 class DayPlan(BaseModel):
@@ -54,6 +75,9 @@ class Itinerary(BaseModel):
     summary: NonEmptyText
     days: list[DayPlan] = Field(min_length=1)
     total_estimated_cost: Money
+    map_enrichment_status: Literal["not_attempted", "completed", "partial", "unavailable"] = (
+        "not_attempted"
+    )
 
 
 class ErrorResponse(BaseModel):

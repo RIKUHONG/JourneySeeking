@@ -8,6 +8,7 @@ from typing import ClassVar, Protocol
 from pydantic import ValidationError
 
 from backend.app.models.schemas import Itinerary, TripRequest
+from backend.app.services.map_enrichment import MapEnrichmentService
 
 
 class ItineraryGenerator(Protocol):
@@ -38,8 +39,11 @@ class ItineraryValidationError(TripServiceError):
 
 
 class TripService:
-    def __init__(self, generator: ItineraryGenerator) -> None:
+    def __init__(
+        self, generator: ItineraryGenerator, map_enricher: MapEnrichmentService | None = None
+    ) -> None:
         self.generator = generator
+        self.map_enricher = map_enricher
 
     def generate(self, request: TripRequest) -> Itinerary:
         try:
@@ -62,7 +66,9 @@ class TripService:
         except json.JSONDecodeError as exc:
             raise MomaInvalidResponseError() from exc
 
-        required_fields = set(Itinerary.model_fields)
+        required_fields = {
+            name for name, field in Itinerary.model_fields.items() if field.is_required()
+        }
         if not isinstance(payload, dict) or not required_fields.issubset(payload):
             raise MomaInvalidResponseError()
 
@@ -91,4 +97,6 @@ class TripService:
         ):
             raise ItineraryValidationError()
 
-        return itinerary
+        if self.map_enricher is None:
+            return itinerary
+        return self.map_enricher.enrich(itinerary)
