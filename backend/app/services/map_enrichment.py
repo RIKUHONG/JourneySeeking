@@ -2,22 +2,105 @@
 
 from __future__ import annotations
 
+import logging
+import re
 from collections.abc import Iterable
+from dataclasses import dataclass
 from itertools import pairwise
 
 from backend.app.integrations.contracts import Coordinates, MapService, Place, Route
 from backend.app.integrations.errors import MapServiceError
 from backend.app.models.schemas import Activity, Itinerary, RouteInfo
 
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class MapEnrichmentMetrics:
+    """Quality counters for one itinerary enrichment attempt."""
+
+    poi_total: int = 0
+    poi_verified: int = 0
+    poi_not_found: int = 0
+    poi_ambiguous: int = 0
+    poi_unavailable: int = 0
+    route_eligible: int = 0
+    route_verified: int = 0
+    route_unavailable: int = 0
+
+    @property
+    def poi_verified_rate(self) -> float:
+        return self.poi_verified / self.poi_total if self.poi_total else 0.0
+
+    @property
+    def route_verified_rate(self) -> float:
+        return self.route_verified / self.route_eligible if self.route_eligible else 0.0
+
 
 def _normalized(value: str) -> str:
-    return "".join(value.casefold().split())
+    """Normalize names for deterministic, conservative POI matching."""
+    value = value.casefold().strip()
+    value = re.sub(r"[\s\-_（）()【】\[\]·•、,，.。/\\]+", "", value)
+    return value
+
+
+_NAME_SUFFIXES = (
+    "风景名胜区",
+    "风景区",
+    "旅游区",
+    "景区",
+    "博物馆",
+    "纪念馆",
+    "美术馆",
+    "公园",
+    "广场",
+    "分店",
+    "店",
+)
+
+
+def _name_variants(value: str) -> set[str]:
+    normalized = _normalized(value)
+    variants = {normalized}
+    for suffix in _NAME_SUFFIXES:
+        normalized_suffix = _normalized(suffix)
+        if normalized.endswith(normalized_suffix) and len(normalized) > len(normalized_suffix):
+            variants.add(normalized[: -len(normalized_suffix)])
+    return {variant for variant in variants if len(variant) >= 2}
 
 
 def _match_place(activity: Activity, places: list[Place]) -> Place | None:
-    """Accept only one exact normalized name; never guess from similarity."""
-    exact = [place for place in places if _normalized(place.name) == _normalized(activity.name)]
-    return exact[0] if len(exact) == 1 else None
+    """Match a unique candidate without guessing between ambiguous POIs.
+
+    Exact normalized names win. If no exact match exists, a suffix-normalized
+    or unique containment match is accepted. Similarity scores are deliberately
+    not used: two same-name branches must remain ``ambiguous``.
+    """
+    activity_name = _normalized(activity.name)
+    exact = [place for place in places if _normalized(place.name) == activity_name]
+    if len(exact) == 1:
+        return exact[0]
+    if len(exact) > 1:
+        return None
+
+    activity_variants = _name_variants(activity.name)
+    reduced = []
+    for place in places:
+        place_variants = _name_variants(place.name)
+        if activity_variants & place_variants:
+            reduced.append(place)
+    if len(reduced) == 1:
+        return reduced[0]
+    if len(reduced) > 1:
+        return None
+
+    containment = [
+        place
+        for place in places
+        if len(activity_name) >= 2
+        and (_normalized(place.name) in activity_name or activity_name in _normalized(place.name))
+    ]
+    return containment[0] if len(containment) == 1 else None
 
 
 class MapEnrichmentService:
@@ -25,6 +108,7 @@ class MapEnrichmentService:
 
     def __init__(self, map_service: MapService) -> None:
         self.map_service = map_service
+        self.last_metrics = MapEnrichmentMetrics()
 
     def enrich(self, itinerary: Itinerary, *, mode: str = "driving") -> Itinerary:
         if mode not in {"driving", "walking"}:
@@ -39,7 +123,16 @@ class MapEnrichmentService:
         service_unavailable = False
         for activity in activities:
             try:
-                places = self.map_service.search_pois(activity.name, city=copied.destination)
+                places_by_id: dict[str, Place] = {}
+                search_names = [activity.name]
+                normalized_activity = _normalized(activity.name)
+                for variant in _name_variants(activity.name):
+                    if variant != normalized_activity:
+                        search_names.append(variant)
+                for search_name in search_names:
+                    for place in self.map_service.search_pois(search_name, city=copied.destination):
+                        places_by_id.setdefault(place.provider_id, place)
+                places = list(places_by_id.values())
             except MapServiceError:
                 activity.poi_status = "unavailable"
                 service_unavailable = True
@@ -55,6 +148,9 @@ class MapEnrichmentService:
             self._apply_place(activity, place)
 
         routes_available = False
+        route_eligible = 0
+        route_verified = 0
+        route_unavailable = 0
         for previous, current in pairwise(activities):
             if previous.poi_status != "verified" or current.poi_status != "verified":
                 continue
@@ -64,6 +160,7 @@ class MapEnrichmentService:
             if current.longitude is None or current.latitude is None:
                 current.route_status = "missing_coordinates"
                 continue
+            route_eligible += 1
             try:
                 route = self.map_service.plan_route(
                     Coordinates(previous.longitude, previous.latitude),
@@ -73,9 +170,11 @@ class MapEnrichmentService:
             except MapServiceError:
                 current.route_status = "unavailable"
                 service_unavailable = True
+                route_unavailable += 1
                 continue
             self._apply_route(current, route, mode)
             routes_available = True
+            route_verified += 1
 
         verified_count = sum(activity.poi_status == "verified" for activity in activities)
         if service_unavailable and verified_count == 0:
@@ -86,6 +185,31 @@ class MapEnrichmentService:
             copied.map_enrichment_status = "completed"
         else:
             copied.map_enrichment_status = "partial"
+        counts = {
+            "verified": sum(activity.poi_status == "verified" for activity in activities),
+            "not_found": sum(activity.poi_status == "not_found" for activity in activities),
+            "ambiguous": sum(activity.poi_status == "ambiguous" for activity in activities),
+            "unavailable": sum(activity.poi_status == "unavailable" for activity in activities),
+        }
+        self.last_metrics = MapEnrichmentMetrics(
+            poi_total=len(activities),
+            poi_verified=counts["verified"],
+            poi_not_found=counts["not_found"],
+            poi_ambiguous=counts["ambiguous"],
+            poi_unavailable=counts["unavailable"],
+            route_eligible=route_eligible,
+            route_verified=route_verified,
+            route_unavailable=route_unavailable,
+        )
+        logger.info(
+            "map enrichment metrics: poi=%d/%d (%.3f) route=%d/%d (%.3f)",
+            self.last_metrics.poi_verified,
+            self.last_metrics.poi_total,
+            self.last_metrics.poi_verified_rate,
+            self.last_metrics.route_verified,
+            self.last_metrics.route_eligible,
+            self.last_metrics.route_verified_rate,
+        )
         return copied
 
     @staticmethod

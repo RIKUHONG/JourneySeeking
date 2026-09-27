@@ -125,3 +125,24 @@ P1 两个 Issue 分别提交 PR；先完成地点和路线，再在最新 `main`
 - PR 合并前解决所有 review 意见；
 - 不提交 .env、API Key、真实用户数据或参考项目目录；
 - PR 合并后删除远端功能分支。
+## 后续推进计划（POI → 缓存 → 天气）
+
+本阶段的优先顺序确定为：先提高 POI 命中率并建立指标，再增加可替换的缓存，最后接入天气预报和轻量行程建议。天气第一版不自动重排活动；Redis 不是运行时硬依赖，先以内存实现验证缓存行为。
+
+P1-1 使用独立分支 `feature/poi-quality`，从最新 `main` 创建，通过 PR 合并；不得直接向 `main` 提交，也不与天气分支或 Redis 分支混合开发。
+
+| 阶段 | 主责 | 交付物 | 完成门槛 |
+|---|---|---|---|
+| 1. POI 命中率基线与匹配优化 | 成员 C；分支 `feature/poi-quality` | `poi_verified_rate`、`poi_not_found_rate`、`poi_ambiguous_rate`、`route_verified_rate`；分层匹配；离线测试 | 不把模糊候选直接标为 verified；ID/坐标始终来自供应商结果 |
+| 2. 缓存抽象与内存实现 | 成员 C；分支 `feature/map-cache` | POI/路线 cache interface、key 规范、TTL、内存实现 | 命中/未命中测试通过；缓存不可用不影响基础行程 |
+| 3. 天气展示与轻量建议 | 成员 C；分支 `feature/weather-trip-advice` | `DayPlan` 可选天气字段；按日期映射；雨天/未知天气建议 | 3～4 天可覆盖；5～7 天超范围保持 unknown；天气失败仍返回基础行程 |
+| 4. Redis 生产实现 | 成员 C；分支 `feature/redis-cache` | Redis adapter、连接配置、故障降级 | 仅在多实例或调用量证明需要时合入；内存实现仍可独立运行 |
+| 5. 天气驱动的自动调度 | 成员 C；分支 `feature/weather-auto-scheduling` | 替代活动、重排和用户确认流程 | 另开 P2 设计，不纳入天气第一版 |
+
+### 成员 C：P1 后续工作的唯一负责人
+
+- 独立负责 POI、缓存、天气三个阶段的需求确认、契约更新、实现、测试、验收记录和 PR 提交。
+- P1 阶段不再拆分给成员 A 或 B；A、B 不承担这些阶段的实现、审核或测试工作。
+- POI 阶段不得用相似度直接猜测唯一 POI；多候选必须保留 `ambiguous`。
+- 缓存先实现可替换的内存版本，再按部署需求实现 Redis；不得把 Redis 作为启动硬依赖。
+- 天气第一版只提供按日期预报和可解释建议，不自动删除、替换或重排活动。
