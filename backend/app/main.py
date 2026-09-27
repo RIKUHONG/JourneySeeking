@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from uuid import uuid4
-
 from typing import Literal
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -18,7 +17,11 @@ app = FastAPI(title="MiliTravel API", version="0.1.0", description="Travel plann
 
 
 def _request_id(request: Request) -> str:
-    return getattr(request.state, "request_id", None) or request.headers.get("X-Request-ID") or f"req_{uuid4().hex}"
+    return (
+        getattr(request.state, "request_id", None)
+        or request.headers.get("X-Request-ID")
+        or f"req_{uuid4().hex}"
+    )
 
 
 @app.middleware("http")
@@ -30,21 +33,33 @@ async def attach_request_id(request: Request, call_next):
 
 
 def get_trip_service() -> TripService:
+    from .config.settings import settings
+    from .integrations.amap_client import AmapClient
     from .integrations.moma_client import MomaClient
     from .services.itinerary_generator import ItineraryGenerator
+    from .services.map_enrichment import MapEnrichmentService
 
-    return TripService(ItineraryGenerator(client=MomaClient()))
+    return TripService(
+        ItineraryGenerator(client=MomaClient()),
+        map_enricher=MapEnrichmentService(AmapClient(config=settings)),
+    )
 
 
 @app.exception_handler(RequestValidationError)
 async def request_validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
-    body = ErrorResponse(code="INVALID_TRIP_REQUEST", message="Invalid trip request", request_id=_request_id(request))
+    body = ErrorResponse(
+        code="INVALID_TRIP_REQUEST", message="Invalid trip request", request_id=_request_id(request)
+    )
     return JSONResponse(status_code=422, content=body.model_dump(mode="json"))
 
 
 @app.exception_handler(TripServiceError)
 async def trip_service_error_handler(request: Request, exc: TripServiceError) -> JSONResponse:
-    status = {"MOMA_TIMEOUT": 504, "MOMA_INVALID_RESPONSE": 502, "ITINERARY_VALIDATION_ERROR": 502}.get(exc.code, 500)
+    status = {
+        "MOMA_TIMEOUT": 504,
+        "MOMA_INVALID_RESPONSE": 502,
+        "ITINERARY_VALIDATION_ERROR": 502,
+    }.get(exc.code, 500)
     body = ErrorResponse(code=exc.code, message=exc.message, request_id=_request_id(request))
     return JSONResponse(status_code=status, content=body.model_dump(mode="json"))
 
@@ -54,8 +69,11 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/api/trip/generate", response_model=Itinerary)
-def generate_trip(request: TripRequest, service: TripService = Depends(get_trip_service)) -> Itinerary:
+@app.post("/api/trip/generate", response_model=Itinerary, response_model_exclude_defaults=True)
+def generate_trip(
+    request: TripRequest,
+    service: TripService = Depends(get_trip_service),  # noqa: B008
+) -> Itinerary:
     return service.generate(request)
 
 

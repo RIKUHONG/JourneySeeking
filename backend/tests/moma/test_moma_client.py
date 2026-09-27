@@ -106,6 +106,15 @@ def test_chat_uses_body_id_when_request_header_is_missing(settings):
     assert result.request_id == "chatcmpl_test"
 
 
+def test_chat_uses_generation_safe_default_max_tokens(settings):
+    response = FakeResponse(status_code=200, body=success_body())
+    session = FakeSession([response])
+
+    MomaClient(config=settings, session=session).chat([])
+
+    assert session.calls[0][1]["json"]["max_tokens"] == 4096
+
+
 def test_chat_retries_network_errors_and_returns_later_success(settings, monkeypatch):
     response = FakeResponse(status_code=200, body=success_body())
     network_error = httpx.ConnectError(
