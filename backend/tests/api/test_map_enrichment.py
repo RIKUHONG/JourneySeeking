@@ -59,6 +59,40 @@ def test_enriches_exact_pois_and_route_without_mutating_input():
     assert second.route_from_previous.duration_seconds == 600
 
 
+def test_matches_unique_suffix_normalized_poi_and_records_metrics():
+    service = MapEnrichmentService(
+        MockMapService(
+            places=[
+                Place("poi-west", "西湖", "杭州西湖区", Coordinates(120.1, 30.2)),
+            ]
+        )
+    )
+
+    result = service.enrich(itinerary("西湖景区"))
+
+    assert result.days[0].activities[0].poi_status == "verified"
+    assert result.days[0].activities[0].poi_id == "poi-west"
+    assert service.last_metrics.poi_verified == 1
+    assert service.last_metrics.poi_verified_rate == 1.0
+
+
+def test_keeps_same_name_candidates_ambiguous_after_normalization():
+    service = MapEnrichmentService(
+        MockMapService(
+            places=[
+                Place("poi-1", "西湖景区", "杭州西湖区", Coordinates(120.1, 30.2)),
+                Place("poi-2", "西湖风景区", "杭州西湖区", Coordinates(120.2, 30.3)),
+            ]
+        )
+    )
+
+    result = service.enrich(itinerary("西湖"))
+
+    assert result.days[0].activities[0].poi_status == "ambiguous"
+    assert service.last_metrics.poi_ambiguous == 1
+    assert service.last_metrics.poi_verified_rate == 0.0
+
+
 @pytest.mark.parametrize(
     ("names", "expected"),
     [
