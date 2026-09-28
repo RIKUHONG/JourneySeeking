@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import json
 from typing import Any
 
 
 class PromptBuilder:
     """Build MoMA chat messages for the first-version itinerary contract."""
 
-    def build_messages(self, request: Any) -> list[dict[str, str]]:
+    def build_messages(self, request: Any, candidate_pool: Any | None = None) -> list[dict[str, str]]:
         return [
             {
                 "role": "system",
@@ -21,11 +22,11 @@ class PromptBuilder:
             },
             {
                 "role": "user",
-                "content": self._build_user_prompt(request),
+                "content": self._build_user_prompt(request, candidate_pool),
             },
         ]
 
-    def _build_user_prompt(self, request: Any) -> str:
+    def _build_user_prompt(self, request: Any, candidate_pool: Any | None = None) -> str:
         trip_context = {
             "destination": self._value(request, "destination"),
             "start_date": self._value(request, "start_date"),
@@ -38,6 +39,13 @@ class PromptBuilder:
             "hotel_level": self._optional_value(request, "hotel_level"),
             "special_notes": self._optional_value(request, "special_notes"),
         }
+
+        candidate_text = ""
+        if candidate_pool is not None:
+            candidate_text = (
+                "候选 POI 白名单（只能使用其中的 poi_id，不得创造、改写或重复使用）：\n"
+                + json.dumps(candidate_pool.prompt_payload(), ensure_ascii=False)
+            )
 
         return "\n".join(
             [
@@ -54,6 +62,7 @@ class PromptBuilder:
                 f"- dietary_preferences: {trip_context['dietary_preferences']}",
                 f"- hotel_level: {trip_context['hotel_level']}",
                 f"- special_notes: {trip_context['special_notes']}",
+                candidate_text,
                 "JSON 顶层结构必须完全匹配：",
                 self._json_contract(),
                 (
@@ -106,7 +115,9 @@ class PromptBuilder:
             '      "activities": [\n'
             "        {\n"
             '          "time": "HH:MM",\n'
-            '          "name": "...",\n'
+            '          "name": "候选 POI 名称",\n'
+            '          "poi_id": "候选 POI ID",\n'
+            '          "poi_category": "spot|meal|hotel",\n'
             '          "description": "...",\n'
             '          "location": null,\n'
             '          "duration_minutes": null,\n'

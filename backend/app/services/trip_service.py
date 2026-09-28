@@ -77,6 +77,26 @@ class TripService:
         except ValidationError as exc:
             raise ItineraryValidationError() from exc
 
+        candidate_pool = getattr(self.generator, "last_candidate_pool", None)
+        if candidate_pool is not None:
+            ids = [
+                activity.poi_id
+                for day in itinerary.days
+                for activity in day.activities
+                if activity.poi_id is not None
+            ]
+            if len(ids) != sum(len(day.activities) for day in itinerary.days):
+                raise ItineraryValidationError()
+            try:
+                candidate_pool.validate_ids(ids)
+                for day in itinerary.days:
+                    for activity in day.activities:
+                        candidate = candidate_pool.by_id[activity.poi_id]
+                        if activity.poi_category != candidate.category.value:
+                            raise ValueError("Planner returned a POI category mismatch")
+            except ValueError as exc:
+                raise ItineraryValidationError() from exc
+
         expected_dates = [
             request.start_date + timedelta(days=offset)
             for offset in range((request.end_date - request.start_date).days + 1)
@@ -99,4 +119,8 @@ class TripService:
 
         if self.map_enricher is None:
             return itinerary
-        return self.map_enricher.enrich(itinerary)
+        return self.map_enricher.enrich(
+            itinerary,
+            candidate_pool=candidate_pool,
+            require_poi_ids=candidate_pool is not None,
+        )
