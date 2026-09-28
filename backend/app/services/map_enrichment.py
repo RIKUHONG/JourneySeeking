@@ -37,6 +37,14 @@ class MapEnrichmentMetrics:
         return self.poi_verified / self.poi_total if self.poi_total else 0.0
 
     @property
+    def poi_not_found_rate(self) -> float:
+        return self.poi_not_found / self.poi_total if self.poi_total else 0.0
+
+    @property
+    def poi_ambiguous_rate(self) -> float:
+        return self.poi_ambiguous / self.poi_total if self.poi_total else 0.0
+
+    @property
     def route_verified_rate(self) -> float:
         return self.route_verified / self.route_eligible if self.route_eligible else 0.0
 
@@ -46,9 +54,7 @@ def _normalized(value: str) -> str:
     value = value.casefold().strip()
     value = re.sub(r"[\s\-_（）()【】\[\]·•、,，.。/\\]+", "", value)
     return "".join(
-        char
-        for char in value
-        if not unicodedata.category(char).startswith(("P", "S", "Z"))
+        char for char in value if not unicodedata.category(char).startswith(("P", "S", "Z"))
     )
 
 
@@ -84,9 +90,7 @@ def _tokens(value: str) -> set[str]:
         return set()
     chunks = {normalized}
     chunks.update(
-        part
-        for part in re.split(r"[路街道区县市省镇乡村号栋座层店馆园]", normalized)
-        if part
+        part for part in re.split(r"[路街道区县市省镇乡村号栋座层店馆园]", normalized) if part
     )
     return {chunk for chunk in chunks if len(chunk) >= 2}
 
@@ -240,7 +244,9 @@ class MapEnrichmentService:
                 route = self._cached(key)
                 if route is None:
                     route = self.map_service.plan_route(
-                        origin, destination, mode=mode  # type: ignore[arg-type]
+                        origin,
+                        destination,
+                        mode=mode,  # type: ignore[arg-type]
                     )
                     self._store(key, route, ttl_seconds=self.route_ttl_seconds)
             except MapServiceError:

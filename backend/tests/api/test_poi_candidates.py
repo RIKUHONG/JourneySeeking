@@ -2,17 +2,16 @@ import json
 
 import pytest
 
-from backend.app.integrations.contracts import Coordinates, Place
+from backend.app.integrations.contracts import Coordinates, Place, Route
 from backend.app.integrations.mock_map_service import MockMapService
-from backend.app.integrations.contracts import Route
 from backend.app.models.schemas import TripRequest
+from backend.app.services.map_enrichment import MapEnrichmentService
 from backend.app.services.poi_candidates import (
     PoiCandidate,
-    PoiCategory,
     PoiCandidatePool,
+    PoiCategory,
     collect_candidate_pool,
 )
-from backend.app.services.map_enrichment import MapEnrichmentService
 from backend.app.services.trip_service import ItineraryValidationError, TripService
 
 
@@ -34,9 +33,7 @@ def test_candidate_pool_is_city_scoped_and_categorized():
 
 def test_candidate_pool_rejects_unknown_and_duplicate_ids():
     pool = collect_candidate_pool(
-        MockMapService(
-            places=[Place("spot-1", "景点", "杭州市", Coordinates(120.1, 30.2))]
-        ),
+        MockMapService(places=[Place("spot-1", "景点", "杭州市", Coordinates(120.1, 30.2))]),
         "杭州市",
     )
     with pytest.raises(ValueError, match="outside"):
@@ -50,30 +47,48 @@ def test_candidate_ids_are_hydrated_and_adjacent_routes_are_planned():
     second = PoiCandidate("spot-2", "灵隐寺", PoiCategory.SPOT, "杭州市西湖区", 30.3, 120.2)
     pool = PoiCandidatePool("杭州市", (first, second))
     service = MockMapService(
-        routes={
-            (Coordinates(120.1, 30.2), Coordinates(120.2, 30.3), "driving"): Route(2500, 600)
-        }
+        routes={(Coordinates(120.1, 30.2), Coordinates(120.2, 30.3), "driving"): Route(2500, 600)}
     )
 
     class Generator:
         last_candidate_pool = pool
 
         def generate(self, request):
-            return json.dumps({
-                "destination": request.destination,
-                "start_date": "2026-10-01",
-                "end_date": "2026-10-03",
-                "summary": "test",
-                "days": [
-                    {"date": "2026-10-01", "title": "day", "activities": [
-                        {"time": "09:00", "name": "ignored", "poi_id": "spot-1", "poi_category": "spot", "description": "x", "estimated_cost": 0},
-                        {"time": "11:00", "name": "ignored", "poi_id": "spot-2", "poi_category": "spot", "description": "x", "estimated_cost": 0},
-                    ]},
-                    {"date": "2026-10-02", "title": "day", "activities": []},
-                    {"date": "2026-10-03", "title": "day", "activities": []},
-                ],
-                "total_estimated_cost": 0,
-            })
+            return json.dumps(
+                {
+                    "destination": request.destination,
+                    "start_date": "2026-10-01",
+                    "end_date": "2026-10-03",
+                    "summary": "test",
+                    "days": [
+                        {
+                            "date": "2026-10-01",
+                            "title": "day",
+                            "activities": [
+                                {
+                                    "time": "09:00",
+                                    "name": "ignored",
+                                    "poi_id": "spot-1",
+                                    "poi_category": "spot",
+                                    "description": "x",
+                                    "estimated_cost": 0,
+                                },
+                                {
+                                    "time": "11:00",
+                                    "name": "ignored",
+                                    "poi_id": "spot-2",
+                                    "poi_category": "spot",
+                                    "description": "x",
+                                    "estimated_cost": 0,
+                                },
+                            ],
+                        },
+                        {"date": "2026-10-02", "title": "day", "activities": []},
+                        {"date": "2026-10-03", "title": "day", "activities": []},
+                    ],
+                    "total_estimated_cost": 0,
+                }
+            )
 
     result = TripService(Generator(), MapEnrichmentService(service)).generate(
         TripRequest(destination="杭州市", start_date="2026-10-01", end_date="2026-10-03")
@@ -93,20 +108,33 @@ def test_candidate_mode_rejects_missing_or_out_of_pool_ids():
         last_candidate_pool = pool
 
         def generate(self, request):
-            return json.dumps({
-                "destination": request.destination,
-                "start_date": "2026-10-01",
-                "end_date": "2026-10-03",
-                "summary": "test",
-                "days": [
-                    {"date": "2026-10-01", "title": "day", "activities": [
-                        {"time": "09:00", "name": "x", "poi_id": "outside", "poi_category": "spot", "description": "x", "estimated_cost": 0}
-                    ]},
-                    {"date": "2026-10-02", "title": "day", "activities": []},
-                    {"date": "2026-10-03", "title": "day", "activities": []},
-                ],
-                "total_estimated_cost": 0,
-            })
+            return json.dumps(
+                {
+                    "destination": request.destination,
+                    "start_date": "2026-10-01",
+                    "end_date": "2026-10-03",
+                    "summary": "test",
+                    "days": [
+                        {
+                            "date": "2026-10-01",
+                            "title": "day",
+                            "activities": [
+                                {
+                                    "time": "09:00",
+                                    "name": "x",
+                                    "poi_id": "outside",
+                                    "poi_category": "spot",
+                                    "description": "x",
+                                    "estimated_cost": 0,
+                                }
+                            ],
+                        },
+                        {"date": "2026-10-02", "title": "day", "activities": []},
+                        {"date": "2026-10-03", "title": "day", "activities": []},
+                    ],
+                    "total_estimated_cost": 0,
+                }
+            )
 
     with pytest.raises(ItineraryValidationError):
         TripService(Generator()).generate(

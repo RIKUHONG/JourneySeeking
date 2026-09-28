@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 import json
+from collections.abc import Sequence
 from typing import Any
 
 
 class PromptBuilder:
     """Build MoMA chat messages for the first-version itinerary contract."""
 
-    def build_messages(self, request: Any, candidate_pool: Any | None = None) -> list[dict[str, str]]:
+    def build_messages(
+        self, request: Any, candidate_pool: Any | None = None
+    ) -> list[dict[str, str]]:
         return [
             {
                 "role": "system",

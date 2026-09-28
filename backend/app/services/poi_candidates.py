@@ -25,7 +25,7 @@ class PoiCandidate:
     longitude: float
 
     @classmethod
-    def from_place(cls, place: Place, category: PoiCategory) -> "PoiCandidate":
+    def from_place(cls, place: Place, category: PoiCategory) -> PoiCandidate:
         return cls(
             poi_id=place.provider_id,
             name=place.name,
