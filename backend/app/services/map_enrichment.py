@@ -204,7 +204,9 @@ class MapEnrichmentService:
                 route = self._cached(key)
                 if route is None:
                     route = self.map_service.plan_route(
-                        origin, destination, mode=mode  # type: ignore[arg-type]
+                        origin,
+                        destination,
+                        mode=mode,  # type: ignore[arg-type]
                     )
                     self._store(key, route, ttl_seconds=self.route_ttl_seconds)
             except MapServiceError:
