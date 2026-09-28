@@ -38,10 +38,17 @@ def get_trip_service() -> TripService:
     from .integrations.moma_client import MomaClient
     from .services.itinerary_generator import ItineraryGenerator
     from .services.map_enrichment import MapEnrichmentService
+    from .services.poi_candidates import collect_candidate_pool
 
+    map_client = AmapClient(config=settings)
     return TripService(
-        ItineraryGenerator(client=MomaClient()),
-        map_enricher=MapEnrichmentService(AmapClient(config=settings)),
+        ItineraryGenerator(
+            client=MomaClient(),
+            candidate_provider=lambda request: collect_candidate_pool(
+                map_client, request.destination
+            ),
+        ),
+        map_enricher=MapEnrichmentService(map_client),
     )
 
 

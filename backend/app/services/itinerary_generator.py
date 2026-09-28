@@ -35,6 +35,7 @@ class ItineraryGenerator:
         prompt_builder: PromptBuilder | None = None,
         validator: Callable[[dict[str, Any]], Any] | None = None,
         max_repair_attempts: int = 1,
+        candidate_provider: Callable[[Any], Any] | None = None,
     ) -> None:
         if max_repair_attempts < 0:
             raise ValueError("max_repair_attempts must be non-negative")
@@ -42,10 +43,16 @@ class ItineraryGenerator:
         self.prompt_builder = prompt_builder or PromptBuilder()
         self.validator = validator
         self.max_repair_attempts = max_repair_attempts
+        self.candidate_provider = candidate_provider
+        self.last_candidate_pool = None
 
     def generate(self, request: Any) -> str:
         """Return normalized JSON text for a trip request."""
-        messages = self.prompt_builder.build_messages(request)
+        candidate_pool = (
+            self.candidate_provider(request) if self.candidate_provider is not None else None
+        )
+        self.last_candidate_pool = candidate_pool
+        messages = self.prompt_builder.build_messages(request, candidate_pool)
         last_failure = "MoMA 未返回可用的结构化行程。"
         last_raw_content = ""
 

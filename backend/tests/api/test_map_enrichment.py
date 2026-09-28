@@ -11,7 +11,7 @@ from backend.app.integrations.errors import FailureReason
 from backend.app.integrations.mock_map_service import MockMapService
 from backend.app.main import app, get_trip_service
 from backend.app.models.schemas import Activity, DayPlan, Itinerary
-from backend.app.services.map_enrichment import MapEnrichmentService
+from backend.app.services.map_enrichment import MapEnrichmentService, _match_place
 from backend.app.services.trip_service import TripService
 
 
@@ -91,6 +91,25 @@ def test_keeps_same_name_candidates_ambiguous_after_normalization():
     assert result.days[0].activities[0].poi_status == "ambiguous"
     assert service.last_metrics.poi_ambiguous == 1
     assert service.last_metrics.poi_verified_rate == 0.0
+
+
+def test_location_context_disambiguates_duplicate_pois():
+    activity = Activity(
+        time="09:00",
+        name="西湖",
+        location="西湖区孤山路",
+        description="游览",
+        estimated_cost=0,
+    )
+    selected = _match_place(
+        activity,
+        [
+            Place("poi-hz", "西湖", "杭州市西湖区孤山路", Coordinates(120.1, 30.2)),
+            Place("poi-other", "西湖", "杭州市余杭区未来科技城", Coordinates(120.2, 30.3)),
+        ],
+    )
+    assert selected is not None
+    assert selected.provider_id == "poi-hz"
 
 
 @pytest.mark.parametrize(
