@@ -8,7 +8,9 @@ import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
 from itertools import pairwise
+from typing import Any
 
+from backend.app.cache import Cache, poi_cache_key, route_cache_key
 from backend.app.integrations.contracts import Coordinates, MapService, Place, Route
 from backend.app.integrations.errors import MapServiceError
 from backend.app.models.schemas import Activity, Itinerary, RouteInfo
@@ -124,9 +126,37 @@ def _match_place(activity: Activity, places: list[Place]) -> Place | None:
 class MapEnrichmentService:
     """Enrich a validated itinerary while preserving it when maps are unavailable."""
 
-    def __init__(self, map_service: MapService) -> None:
+    def __init__(
+        self,
+        map_service: MapService,
+        cache: Cache[Any] | None = None,
+        *,
+        poi_ttl_seconds: float | None = 300.0,
+        route_ttl_seconds: float | None = 300.0,
+    ) -> None:
         self.map_service = map_service
+        self.cache = cache
+        self.poi_ttl_seconds = poi_ttl_seconds
+        self.route_ttl_seconds = route_ttl_seconds
         self.last_metrics = MapEnrichmentMetrics()
+
+    def _cached(self, key: str) -> Any | None:
+        if self.cache is None:
+            return None
+        try:
+            return self.cache.get(key)
+        except Exception:
+            logger.warning("cache read failed; bypassing cache", exc_info=True)
+            return None
+
+    def _store(self, key: str, value: Any, *, ttl_seconds: float | None) -> None:
+        if self.cache is None:
+            return
+        try:
+            self.cache.set(key, value, ttl_seconds=ttl_seconds)
+        except Exception:
+            logger.warning("cache write failed; continuing without cache", exc_info=True)
+            return
 
     def enrich(
         self,
@@ -165,7 +195,14 @@ class MapEnrichmentService:
                     if variant != normalized_activity:
                         search_names.append(variant)
                 for search_name in search_names:
-                    for place in self.map_service.search_pois(search_name, city=copied.destination):
+                    key = poi_cache_key(search_name, city=copied.destination)
+                    cached_places = self._cached(key)
+                    if cached_places is None:
+                        cached_places = self.map_service.search_pois(
+                            search_name, city=copied.destination
+                        )
+                        self._store(key, list(cached_places), ttl_seconds=self.poi_ttl_seconds)
+                    for place in cached_places:
                         places_by_id.setdefault(place.provider_id, place)
                 places = list(places_by_id.values())
             except MapServiceError:
@@ -197,11 +234,15 @@ class MapEnrichmentService:
                 continue
             route_eligible += 1
             try:
-                route = self.map_service.plan_route(
-                    Coordinates(previous.longitude, previous.latitude),
-                    Coordinates(current.longitude, current.latitude),
-                    mode=mode,  # type: ignore[arg-type]
-                )
+                origin = Coordinates(previous.longitude, previous.latitude)
+                destination = Coordinates(current.longitude, current.latitude)
+                key = route_cache_key(origin, destination, mode=mode)  # type: ignore[arg-type]
+                route = self._cached(key)
+                if route is None:
+                    route = self.map_service.plan_route(
+                        origin, destination, mode=mode  # type: ignore[arg-type]
+                    )
+                    self._store(key, route, ttl_seconds=self.route_ttl_seconds)
             except MapServiceError:
                 current.route_status = "unavailable"
                 service_unavailable = True

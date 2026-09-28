@@ -10,10 +10,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from .cache import MemoryCache
 from .models.schemas import ErrorResponse, Itinerary, TripRequest
 from .services.trip_service import TripService, TripServiceError
 
 app = FastAPI(title="MiliTravel API", version="0.1.0", description="Travel planning backend API")
+_map_cache = MemoryCache(default_ttl_seconds=300)
 
 
 def _request_id(request: Request) -> str:
@@ -48,7 +50,7 @@ def get_trip_service() -> TripService:
                 map_client, request.destination
             ),
         ),
-        map_enricher=MapEnrichmentService(map_client),
+        map_enricher=MapEnrichmentService(map_client, cache=_map_cache),
     )
 
 
