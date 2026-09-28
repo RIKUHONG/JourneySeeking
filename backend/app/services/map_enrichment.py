@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
 from itertools import pairwise
@@ -13,6 +14,7 @@ from backend.app.cache import Cache, poi_cache_key, route_cache_key
 from backend.app.integrations.contracts import Coordinates, MapService, Place, Route
 from backend.app.integrations.errors import MapServiceError
 from backend.app.models.schemas import Activity, Itinerary, RouteInfo
+from backend.app.services.poi_candidates import PoiCandidatePool
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,14 @@ class MapEnrichmentMetrics:
         return self.poi_verified / self.poi_total if self.poi_total else 0.0
 
     @property
+    def poi_not_found_rate(self) -> float:
+        return self.poi_not_found / self.poi_total if self.poi_total else 0.0
+
+    @property
+    def poi_ambiguous_rate(self) -> float:
+        return self.poi_ambiguous / self.poi_total if self.poi_total else 0.0
+
+    @property
     def route_verified_rate(self) -> float:
         return self.route_verified / self.route_eligible if self.route_eligible else 0.0
 
@@ -43,7 +53,9 @@ def _normalized(value: str) -> str:
     """Normalize names for deterministic, conservative POI matching."""
     value = value.casefold().strip()
     value = re.sub(r"[\s\-_（）()【】\[\]·•、,，.。/\\]+", "", value)
-    return value
+    return "".join(
+        char for char in value if not unicodedata.category(char).startswith(("P", "S", "Z"))
+    )
 
 
 _NAME_SUFFIXES = (
@@ -71,38 +83,48 @@ def _name_variants(value: str) -> set[str]:
     return {variant for variant in variants if len(variant) >= 2}
 
 
+def _tokens(value: str) -> set[str]:
+    """Return useful chunks for matching an activity location context."""
+    normalized = _normalized(value)
+    if not normalized:
+        return set()
+    chunks = {normalized}
+    chunks.update(
+        part for part in re.split(r"[路街道区县市省镇乡村号栋座层店馆园]", normalized) if part
+    )
+    return {chunk for chunk in chunks if len(chunk) >= 2}
+
+
 def _match_place(activity: Activity, places: list[Place]) -> Place | None:
-    """Match a unique candidate without guessing between ambiguous POIs.
-
-    Exact normalized names win. If no exact match exists, a suffix-normalized
-    or unique containment match is accepted. Similarity scores are deliberately
-    not used: two same-name branches must remain ``ambiguous``.
-    """
+    """Match one real candidate using name plus location evidence."""
     activity_name = _normalized(activity.name)
-    exact = [place for place in places if _normalized(place.name) == activity_name]
-    if len(exact) == 1:
-        return exact[0]
-    if len(exact) > 1:
-        return None
-
     activity_variants = _name_variants(activity.name)
-    reduced = []
+    location_tokens = _tokens(activity.location or "")
+    scored: list[tuple[int, Place]] = []
     for place in places:
-        place_variants = _name_variants(place.name)
-        if activity_variants & place_variants:
-            reduced.append(place)
-    if len(reduced) == 1:
-        return reduced[0]
-    if len(reduced) > 1:
+        place_name = _normalized(place.name)
+        place_address = _normalized(place.address)
+        place_tokens = _tokens(place.name) | _tokens(place.address)
+        score = 0
+        if place_name == activity_name:
+            score += 100
+        elif activity_variants & _name_variants(place.name):
+            score += 70
+        elif len(activity_name) >= 2 and (
+            activity_name in place_name or place_name in activity_name
+        ):
+            score += 50
+        if location_tokens:
+            score += 25 * sum(token in place_tokens for token in location_tokens)
+            score += 10 * sum(token in place_address for token in location_tokens)
+        if score:
+            scored.append((score, place))
+    if not scored:
         return None
-
-    containment = [
-        place
-        for place in places
-        if len(activity_name) >= 2
-        and (_normalized(place.name) in activity_name or activity_name in _normalized(place.name))
-    ]
-    return containment[0] if len(containment) == 1 else None
+    scored.sort(key=lambda item: item[0], reverse=True)
+    best_score = scored[0][0]
+    best = [place for score, place in scored if score == best_score]
+    return best[0] if len(best) == 1 else None
 
 
 class MapEnrichmentService:
@@ -138,8 +160,16 @@ class MapEnrichmentService:
             self.cache.set(key, value, ttl_seconds=ttl_seconds)
         except Exception:  # cache is an optional optimization, never a dependency
             logger.warning("cache write failed; continuing without cache", exc_info=True)
+            return
 
-    def enrich(self, itinerary: Itinerary, *, mode: str = "driving") -> Itinerary:
+    def enrich(
+        self,
+        itinerary: Itinerary,
+        *,
+        mode: str = "driving",
+        candidate_pool: PoiCandidatePool | None = None,
+        require_poi_ids: bool = False,
+    ) -> Itinerary:
         if mode not in {"driving", "walking"}:
             raise ValueError("Unsupported travel mode")
 
@@ -151,9 +181,19 @@ class MapEnrichmentService:
 
         service_unavailable = False
         for activity in activities:
+            if candidate_pool is not None and require_poi_ids:
+                candidate = candidate_pool.by_id.get(activity.poi_id or "")
+                if candidate is None:
+                    activity.poi_status = "not_found"
+                    continue
+                self._apply_candidate(activity, candidate)
+                continue
             try:
                 places_by_id: dict[str, Place] = {}
                 search_names = [activity.name]
+                if activity.location and activity.location != activity.name:
+                    search_names.append(f"{activity.name} {activity.location}")
+                    search_names.append(activity.location)
                 normalized_activity = _normalized(activity.name)
                 for variant in _name_variants(activity.name):
                     if variant != normalized_activity:
@@ -265,6 +305,18 @@ class MapEnrichmentService:
         activity.address = place.address or None
         activity.latitude = place.coordinates.latitude
         activity.longitude = place.coordinates.longitude
+        activity.poi_status = "verified"
+        activity.map_source = "amap"
+
+    @staticmethod
+    def _apply_candidate(activity: Activity, candidate: object) -> None:
+        activity.poi_id = candidate.poi_id  # type: ignore[attr-defined]
+        activity.poi_category = candidate.category.value  # type: ignore[attr-defined]
+        activity.name = candidate.name  # type: ignore[attr-defined]
+        activity.location = candidate.address or activity.location  # type: ignore[attr-defined]
+        activity.address = candidate.address or None  # type: ignore[attr-defined]
+        activity.latitude = candidate.latitude  # type: ignore[attr-defined]
+        activity.longitude = candidate.longitude  # type: ignore[attr-defined]
         activity.poi_status = "verified"
         activity.map_source = "amap"
 

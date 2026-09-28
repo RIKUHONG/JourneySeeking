@@ -11,7 +11,7 @@ from backend.app.integrations.errors import FailureReason
 from backend.app.integrations.mock_map_service import MockMapService
 from backend.app.main import app, get_trip_service
 from backend.app.models.schemas import Activity, DayPlan, Itinerary
-from backend.app.services.map_enrichment import MapEnrichmentService
+from backend.app.services.map_enrichment import MapEnrichmentService, _match_place
 from backend.app.services.trip_service import TripService
 
 
@@ -76,6 +76,27 @@ def test_matches_unique_suffix_normalized_poi_and_records_metrics():
     assert service.last_metrics.poi_verified_rate == 1.0
 
 
+def test_records_not_found_and_ambiguous_rates():
+    service = MapEnrichmentService(
+        MockMapService(
+            places=[
+                Place("poi-west-1", "West Lake", "\u676d\u5dde", Coordinates(120.1, 30.2)),
+                Place("poi-west-2", "West Lake", "\u676d\u5dde", Coordinates(120.2, 30.3)),
+                Place("poi-lingyin", "Lingyin Temple", "\u676d\u5dde", Coordinates(120.3, 30.4)),
+            ]
+        )
+    )
+
+    result = service.enrich(itinerary("West Lake", "Missing Place", "Lingyin Temple"))
+
+    assert result.map_enrichment_status == "partial"
+    assert service.last_metrics.poi_total == 3
+    assert service.last_metrics.poi_not_found == 1
+    assert service.last_metrics.poi_ambiguous == 1
+    assert service.last_metrics.poi_not_found_rate == pytest.approx(1 / 3)
+    assert service.last_metrics.poi_ambiguous_rate == pytest.approx(1 / 3)
+
+
 def test_keeps_same_name_candidates_ambiguous_after_normalization():
     service = MapEnrichmentService(
         MockMapService(
@@ -91,6 +112,25 @@ def test_keeps_same_name_candidates_ambiguous_after_normalization():
     assert result.days[0].activities[0].poi_status == "ambiguous"
     assert service.last_metrics.poi_ambiguous == 1
     assert service.last_metrics.poi_verified_rate == 0.0
+
+
+def test_location_context_disambiguates_duplicate_pois():
+    activity = Activity(
+        time="09:00",
+        name="西湖",
+        location="西湖区孤山路",
+        description="游览",
+        estimated_cost=0,
+    )
+    selected = _match_place(
+        activity,
+        [
+            Place("poi-hz", "西湖", "杭州市西湖区孤山路", Coordinates(120.1, 30.2)),
+            Place("poi-other", "西湖", "杭州市余杭区未来科技城", Coordinates(120.2, 30.3)),
+        ],
+    )
+    assert selected is not None
+    assert selected.provider_id == "poi-hz"
 
 
 @pytest.mark.parametrize(
@@ -131,6 +171,26 @@ def test_route_requires_both_verified_coordinates():
     result = MapEnrichmentService(service).enrich(itinerary("西湖", "未知"))
     assert result.days[0].activities[1].route_from_previous is None
     assert result.days[0].activities[1].route_status == "not_attempted"
+
+
+def test_route_failure_records_unavailable_metric_and_keeps_base_itinerary():
+    first = Place("poi-1", "West Lake", "\u676d\u5dde", Coordinates(120.1, 30.2))
+    second = Place("poi-2", "Lingyin Temple", "\u676d\u5dde", Coordinates(120.2, 30.3))
+    service = MapEnrichmentService(
+        MockMapService(places=[first, second], route_failure=FailureReason.TIMEOUT)
+    )
+
+    result = service.enrich(itinerary("West Lake", "Lingyin Temple"))
+
+    assert result.map_enrichment_status == "partial"
+    assert result.summary
+    assert all(activity.poi_status == "verified" for activity in result.days[0].activities)
+    assert result.days[0].activities[1].route_status == "unavailable"
+    assert result.days[0].activities[1].route_from_previous is None
+    assert service.last_metrics.route_eligible == 1
+    assert service.last_metrics.route_verified == 0
+    assert service.last_metrics.route_unavailable == 1
+    assert service.last_metrics.route_verified_rate == 0.0
 
 
 def test_generate_endpoint_returns_optional_map_enrichment_fields():
