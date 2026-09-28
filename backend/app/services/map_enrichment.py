@@ -149,7 +149,7 @@ class MapEnrichmentService:
             return None
         try:
             return self.cache.get(key)
-        except Exception:
+        except Exception:  # cache is an optional optimization, never a dependency
             logger.warning("cache read failed; bypassing cache", exc_info=True)
             return None
 
@@ -158,7 +158,7 @@ class MapEnrichmentService:
             return
         try:
             self.cache.set(key, value, ttl_seconds=ttl_seconds)
-        except Exception:
+        except Exception:  # cache is an optional optimization, never a dependency
             logger.warning("cache write failed; continuing without cache", exc_info=True)
             return
 
