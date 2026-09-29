@@ -13,6 +13,7 @@ from backend.app.services.poi_candidates import (
     collect_candidate_pool,
 )
 from backend.app.services.trip_service import ItineraryValidationError, TripService
+from backend.app.services.weather_enrichment import WeatherEnrichmentService
 
 
 def test_candidate_pool_is_city_scoped_and_categorized():
@@ -140,3 +141,64 @@ def test_candidate_mode_rejects_missing_or_out_of_pool_ids():
         TripService(Generator()).generate(
             TripRequest(destination="杭州市", start_date="2026-10-01", end_date="2026-10-03")
         )
+
+
+def test_real_chain_repairs_destination_and_duplicate_poi_before_weather_enrichment():
+    pool = PoiCandidatePool(
+        "杭州市",
+        (PoiCandidate("spot-1", "西湖", PoiCategory.SPOT, "杭州市", 30.2, 120.1),),
+    )
+
+    class Generator:
+        last_candidate_pool = pool
+
+        def generate(self, request):
+            activity = {
+                "time": "09:00",
+                "name": "西湖",
+                "poi_id": "spot-1",
+                "poi_category": "spot",
+                "description": "游览西湖",
+                "estimated_cost": 0,
+            }
+            return json.dumps(
+                {
+                    "destination": "苏州市",
+                    "start_date": "2026-10-01",
+                    "end_date": "2026-10-03",
+                    "summary": "test",
+                    "days": [
+                        {
+                            "date": "2026-10-01",
+                            "title": "day one",
+                            "activities": [activity, {**activity, "time": "10:00"}],
+                        },
+                        {"date": "2026-10-02", "title": "day two", "activities": []},
+                        {"date": "2026-10-03", "title": "day three", "activities": []},
+                    ],
+                    "total_estimated_cost": 0,
+                },
+                ensure_ascii=False,
+            )
+
+    class RecordingWeatherService:
+        def __init__(self):
+            self.calls = []
+
+        def forecast(self, city, *, days):
+            self.calls.append((city, days))
+            return []
+
+    weather_service = RecordingWeatherService()
+    result = TripService(
+        Generator(),
+        MapEnrichmentService(MockMapService()),
+        WeatherEnrichmentService(weather_service),
+    ).generate(
+        TripRequest(destination="杭州市", start_date="2026-10-01", end_date="2026-10-03")
+    )
+
+    assert result.destination == "杭州市"
+    assert [activity.poi_id for activity in result.days[0].activities] == ["spot-1"]
+    assert weather_service.calls == [("杭州市", 3)]
+    assert all(day.weather is not None and day.weather.status == "unknown" for day in result.days)

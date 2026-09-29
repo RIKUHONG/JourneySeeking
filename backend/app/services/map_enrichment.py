@@ -179,6 +179,21 @@ class MapEnrichmentService:
             copied.map_enrichment_status = "completed"
             return copied
 
+        if candidate_pool is None:
+            # IDs and coordinates emitted by MoMA are claims, not verified map
+            # facts. Clear them before best-effort name matching so a failed or
+            # unavailable map lookup cannot expose synthetic IDs as real POIs.
+            for activity in activities:
+                activity.poi_id = None
+                activity.poi_category = None
+                activity.address = None
+                activity.latitude = None
+                activity.longitude = None
+                activity.poi_status = "not_attempted"
+                activity.map_source = None
+                activity.route_from_previous = None
+                activity.route_status = "not_attempted"
+
         service_unavailable = False
         for activity in activities:
             if candidate_pool is not None and require_poi_ids:

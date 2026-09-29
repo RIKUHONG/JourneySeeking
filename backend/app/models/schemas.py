@@ -71,7 +71,9 @@ class WeatherInfo(BaseModel):
     基础行程并将 ``DayPlan.weather`` 留为 ``None``。
     """
 
-    status: Literal["available", "unknown"] = "available"
+    # Required when weather is present so API serialization cannot omit the
+    # provider coverage state as a default value.
+    status: Literal["available", "unknown"]
     condition: NonEmptyText | None = None
     low_celsius: float | None = Field(default=None, allow_inf_nan=False)
     high_celsius: float | None = Field(default=None, allow_inf_nan=False)

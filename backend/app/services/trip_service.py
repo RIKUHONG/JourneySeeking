@@ -1,6 +1,7 @@
 """Validate generated itineraries before returning them from the API."""
 
 import json
+import logging
 import math
 from datetime import timedelta
 from typing import ClassVar, Protocol
@@ -10,6 +11,9 @@ from pydantic import ValidationError
 from backend.app.models.schemas import Itinerary, TripRequest
 from backend.app.services.map_enrichment import MapEnrichmentService
 from backend.app.services.weather_enrichment import WeatherEnrichmentService
+
+
+logger = logging.getLogger(__name__)
 
 
 class ItineraryGenerator(Protocol):
@@ -77,12 +81,14 @@ class TripService:
         if not isinstance(payload, dict) or not required_fields.issubset(payload):
             raise MomaInvalidResponseError()
 
+        candidate_pool = getattr(self.generator, "last_candidate_pool", None)
+        self._normalize_model_payload(payload, request, candidate_pool)
+
         try:
             itinerary = Itinerary.model_validate(payload)
         except ValidationError as exc:
             raise ItineraryValidationError() from exc
 
-        candidate_pool = getattr(self.generator, "last_candidate_pool", None)
         if candidate_pool is not None:
             ids = [
                 activity.poi_id
@@ -131,3 +137,54 @@ class TripService:
         if self.weather_enricher is not None:
             itinerary = self.weather_enricher.enrich(itinerary)
         return itinerary
+
+    @staticmethod
+    def _normalize_model_payload(
+        payload: dict[str, object], request: TripRequest, candidate_pool: object | None
+    ) -> None:
+        """Repair deterministic model drift before validating the base itinerary.
+
+        The request owns its destination; accepting a model-selected destination
+        would also query map and weather providers for the wrong city.  In
+        candidate mode each POI may be scheduled at most once.  Keeping the first
+        occurrence preserves model order while preventing duplicate provider IDs
+        from reaching map enrichment.
+
+        This deliberately does not repair dates, costs, unknown IDs, or category
+        mismatches because those require model intent rather than request facts.
+        """
+        if payload.get("destination") != request.destination:
+            logger.warning("normalizing generated itinerary destination to request destination")
+            payload["destination"] = request.destination
+
+        if candidate_pool is None:
+            return
+
+        seen_poi_ids: set[str] = set()
+        removed_count = 0
+        days = payload.get("days")
+        if not isinstance(days, list):
+            return
+
+        for day in days:
+            if not isinstance(day, dict):
+                continue
+            activities = day.get("activities")
+            if not isinstance(activities, list):
+                continue
+
+            unique_activities: list[object] = []
+            for activity in activities:
+                poi_id = activity.get("poi_id") if isinstance(activity, dict) else None
+                if isinstance(poi_id, str) and poi_id in seen_poi_ids:
+                    removed_count += 1
+                    continue
+                if isinstance(poi_id, str):
+                    seen_poi_ids.add(poi_id)
+                unique_activities.append(activity)
+            day["activities"] = unique_activities
+
+        if removed_count:
+            logger.warning(
+                "removed %d generated activities with duplicate POI IDs", removed_count
+            )

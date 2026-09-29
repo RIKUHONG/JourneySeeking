@@ -1,6 +1,7 @@
 """Amap POI search and route planning adapter."""
 
 import math
+import re
 from typing import Any
 
 import httpx
@@ -9,6 +10,22 @@ from ..config.settings import Settings, settings
 from ._amap_http import request_amap
 from .contracts import Coordinates, Place, Route, TravelMode
 from .errors import FailureReason, MapServiceError
+
+
+def _region_text(value: Any) -> str:
+    if isinstance(value, list):
+        return " ".join(str(item) for item in value if item is not None)
+    return str(value) if value is not None else ""
+
+
+def _same_city(requested: str, *regions: str) -> bool:
+    requested_key = re.sub(r"[\s市]+", "", requested).casefold()
+    if not requested_key:
+        return True
+    known_regions = [re.sub(r"[\s市]+", "", region).casefold() for region in regions if region]
+    return not known_regions or any(
+        requested_key in region or region in requested_key for region in known_regions
+    )
 
 
 def _coordinates(value: Any) -> Coordinates:
@@ -83,8 +100,23 @@ class AmapClient:
             except (KeyError, TypeError, ValueError) as exc:
                 raise MapServiceError(FailureReason.INVALID_RESPONSE) from exc
             address = poi.get("address")
+            city_name = _region_text(poi.get("city"))
+            province_name = _region_text(poi.get("pname"))
+            # Amap can occasionally ignore citylimit. Drop a result when it
+            # explicitly identifies a different city. ``pname`` and ``adname``
+            # are province/district fields, so they cannot be compared with a
+            # city name (for example, 杭州 vs 浙江省/西湖区).
+            if city and city_name and not _same_city(city, city_name):
+                continue
             places.append(
-                Place(provider_id, name, address if isinstance(address, str) else "", coordinates)
+                Place(
+                    provider_id,
+                    name,
+                    address if isinstance(address, str) else "",
+                    coordinates,
+                    city=city_name or None,
+                    province=province_name or None,
+                )
             )
         return places
 

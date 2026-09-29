@@ -198,3 +198,17 @@ def test_offline_mock_client_matches_moma_chat_shape():
     result = ItineraryGenerator(client=client).generate(make_trip_request())
     assert json.loads(result) == VALID_ITINERARY
     assert len(client.calls) == 1
+
+
+def test_empty_candidate_pool_does_not_enable_impossible_id_constraint():
+    client = FakeMomaClient([json.dumps(VALID_ITINERARY, ensure_ascii=False)])
+
+    class EmptyPool:
+        candidates = ()
+
+    generator = ItineraryGenerator(client=client, candidate_provider=lambda request: EmptyPool())
+
+    result = generator.generate(make_trip_request())
+
+    assert json.loads(result) == VALID_ITINERARY
+    assert generator.last_candidate_pool is None
