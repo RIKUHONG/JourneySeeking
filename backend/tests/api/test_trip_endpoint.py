@@ -68,3 +68,16 @@ def test_generate_trip_maps_moma_timeout_without_leaking_details():
     assert response.status_code == 504
     assert response.json()["code"] == "MOMA_TIMEOUT"
     assert "traceback" not in response.text.lower()
+
+
+def test_json_responses_declare_utf8_charset():
+    app.dependency_overrides[get_trip_service] = lambda: StubService(
+        Itinerary.model_validate(VALID_ITINERARY)
+    )
+    try:
+        response = TestClient(app).post("/api/trip/generate", json=VALID_REQUEST)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert "charset=utf-8" in response.headers["content-type"]

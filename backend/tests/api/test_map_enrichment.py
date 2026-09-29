@@ -165,6 +165,21 @@ def test_map_failure_preserves_base_itinerary_and_marks_unavailable():
     assert activity.poi_id is None
 
 
+def test_unverified_model_poi_fields_are_cleared_before_map_lookup():
+    base = itinerary("Unknown")
+    base.days[0].activities[0].poi_id = "hotel_001"
+    base.days[0].activities[0].poi_category = "hotel"
+    base.days[0].activities[0].address = "model-only address"
+
+    result = MapEnrichmentService(MockMapService()).enrich(base)
+    activity = result.days[0].activities[0]
+
+    assert activity.poi_id is None
+    assert activity.poi_category is None
+    assert activity.address is None
+    assert activity.poi_status == "not_found"
+
+
 def test_route_requires_both_verified_coordinates():
     first = Place("poi-1", "西湖", "杭州", Coordinates(120.1, 30.2))
     service = MockMapService(places=[first])

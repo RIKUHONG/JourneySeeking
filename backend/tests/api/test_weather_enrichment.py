@@ -57,7 +57,7 @@ def test_weather_maps_by_date_and_marks_days_after_four_unknown() -> None:
     assert result.days[4].activities[0].name == "西湖"
 
 
-def test_weather_failure_returns_unchanged_base_itinerary() -> None:
+def test_weather_failure_returns_unchanged_base_itinerary(caplog) -> None:
     base = itinerary(3)
     result = WeatherEnrichmentService(
         MockWeatherService(failure=FailureReason.TIMEOUT)
@@ -65,3 +65,4 @@ def test_weather_failure_returns_unchanged_base_itinerary() -> None:
 
     assert [day.weather for day in result.days] == [None, None, None]
     assert [day.activities[0].name for day in result.days] == ["西湖"] * 3
+    assert "weather enrichment unavailable" in caplog.text

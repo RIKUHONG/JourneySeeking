@@ -129,12 +129,18 @@ def test_rejects_out_of_order_days(trip_request: TripRequest) -> None:
         generate_payload(trip_request, payload)
 
 
-@pytest.mark.parametrize("change", [{"destination": "苏州"}, {"end_date": "2026-10-04"}])
-def test_rejects_mismatched_request_fields(
-    trip_request: TripRequest, change: dict[str, object]
-) -> None:
+def test_normalizes_generated_destination_to_request(trip_request: TripRequest) -> None:
     payload = itinerary_payload(trip_request)
-    payload.update(change)
+    payload["destination"] = "苏州"
+
+    itinerary = generate_payload(trip_request, payload)
+
+    assert itinerary.destination == "杭州"
+
+
+def test_rejects_mismatched_request_dates(trip_request: TripRequest) -> None:
+    payload = itinerary_payload(trip_request)
+    payload["end_date"] = "2026-10-04"
     with pytest.raises(ItineraryValidationError):
         generate_payload(trip_request, payload)
 

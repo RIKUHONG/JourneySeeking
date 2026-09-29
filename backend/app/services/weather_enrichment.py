@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+
 from backend.app.integrations.contracts import DailyForecast, WeatherService
 from backend.app.models.schemas import Itinerary, WeatherInfo
+
+
+logger = logging.getLogger(__name__)
 
 
 RAIN_KEYWORDS = ("雨", "雷", "台风", "暴雨", "阵雨", "小雨", "中雨", "大雨")
@@ -21,8 +26,9 @@ class WeatherEnrichmentService:
             forecasts = self.weather_service.forecast(
                 itinerary.destination, days=min(day_count, 4)
             )
-        except Exception:
+        except Exception as exc:
             # Weather is an optional enhancement: preserve the validated base itinerary.
+            logger.warning("weather enrichment unavailable: %s", getattr(exc, "reason", exc))
             return itinerary
 
         by_date = {forecast.date: forecast for forecast in forecasts}

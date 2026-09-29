@@ -1,0 +1,177 @@
+{
+  "destination": "杭州",
+  "start_date": "2026-09-29",
+  "end_date": "2026-10-01",
+  "summary": "三日杭州轻松之旅，融合西湖自然风光与南宋历史文化，漫步历史街区，品味杭城韵味。",
+  "days": [
+    {
+      "date": "2026-09-29",
+      "title": "西湖风光与湖滨漫步",
+      "activities": [
+        {
+          "time": "09:00",
+          "name": "杭州西湖风景名胜区",
+          "description": "游览西湖核心景区，欣赏湖光山色，感受自然与人文交融。",
+          "location": "西湖街道龙井路1号",
+          "duration_minutes": 180,
+          "estimated_cost": 0.0,
+          "poi_id": "B023B13L9M",
+          "poi_category": "spot",
+          "address": "西湖街道龙井路1号",
+          "latitude": 30.222692,
+          "longitude": 120.121358,
+          "poi_status": "verified",
+          "map_source": "amap"
+        },
+        {
+          "time": "12:30",
+          "name": "杭州西湖风景名胜区-湖滨公园",
+          "description": "在湖滨公园漫步，享受湖畔休闲时光，远眺雷峰塔。",
+          "location": "龙井路1号杭州西湖风景名胜区内(东北角)",
+          "duration_minutes": 60,
+          "estimated_cost": 0.0,
+          "poi_id": "B023B05MLT",
+          "poi_category": "spot",
+          "address": "龙井路1号杭州西湖风景名胜区内(东北角)",
+          "latitude": 30.256583,
+          "longitude": 120.158818,
+          "poi_status": "verified",
+          "map_source": "amap",
+          "route_from_previous": {"mode": "driving", "distance_meters": 9999, "duration_seconds": 2118},
+          "route_status": "verified"
+        },
+        {
+          "time": "14:00",
+          "name": "湖滨步行街",
+          "description": "逛湖滨步行街，感受杭州现代商业与西湖景致的结合。",
+          "location": "凤起路539-4号(龙翔桥地铁站C口步行120米)",
+          "duration_minutes": 90,
+          "estimated_cost": 0.0,
+          "poi_id": "B0FFL9RQ5O",
+          "poi_category": "spot",
+          "address": "凤起路539-4号(龙翔桥地铁站C口步行120米)",
+          "latitude": 30.254158,
+          "longitude": 120.162923,
+          "poi_status": "verified",
+          "map_source": "amap",
+          "route_from_previous": {"mode": "driving", "distance_meters": 821, "duration_seconds": 290},
+          "route_status": "verified"
+        },
+        {
+          "time": "18:00",
+          "name": "可见时光·望达斯旅舍(杭州西湖湖滨河坊街店)",
+          "description": "入住靠近西湖和河坊街的旅舍，方便后续行程。",
+          "location": "小井巷21号(吴山广场地铁站D口步行360米)",
+          "estimated_cost": 300.0,
+          "poi_id": "B0FFHDP24G",
+          "poi_category": "hotel",
+          "address": "小井巷21号(吴山广场地铁站D口步行360米)",
+          "latitude": 30.239811,
+          "longitude": 120.168087,
+          "poi_status": "verified",
+          "map_source": "amap",
+          "route_from_previous": {"mode": "driving", "distance_meters": 1858, "duration_seconds": 619},
+          "route_status": "verified"
+        }
+      ],
+      "weather": {
+        "status": "available",
+        "condition": "小雨",
+        "low_celsius": 23.0,
+        "high_celsius": 29.0,
+        "source": "amap"
+      },
+      "weather_advice": ["建议携带雨具，路面湿滑时注意防滑。"]
+    },
+    {
+      "date": "2026-09-30",
+      "title": "南宋遗韵与历史街区",
+      "activities": [
+        {
+          "time": "09:00",
+          "name": "南宋德寿宫遗址博物馆",
+          "description": "参观南宋德寿宫遗址，了解南宋皇家园林与历史。",
+          "location": "望江路228-264号(江城路地铁站E口步行460米)",
+          "duration_minutes": 120,
+          "estimated_cost": 0.0,
+          "poi_id": "B0HGNGK3FG",
+          "poi_category": "spot",
+          "address": "望江路228-264号(江城路地铁站E口步行460米)",
+          "latitude": 30.238678,
+          "longitude": 120.173273,
+          "poi_status": "verified",
+          "map_source": "amap"
+        },
+        {
+          "time": "13:30",
+          "name": "清河坊历史文化特色街区",
+          "description": "漫步清河坊历史街区，品尝小吃，感受市井文化。",
+          "location": "河坊街180号",
+          "duration_minutes": 120,
+          "estimated_cost": 0.0,
+          "poi_id": "B023B07SJZ",
+          "poi_category": "spot",
+          "address": "河坊街180号",
+          "latitude": 30.239827,
+          "longitude": 120.169899,
+          "poi_status": "verified",
+          "map_source": "amap"
+        }
+      ],
+      "weather": {
+        "status": "available",
+        "condition": "小雨",
+        "low_celsius": 20.0,
+        "high_celsius": 29.0,
+        "source": "amap"
+      },
+      "weather_advice": ["建议携带雨具，路面湿滑时注意防滑。"]
+    },
+    {
+      "date": "2026-10-01",
+      "title": "雷峰塔与城市阳台",
+      "activities": [
+        {
+          "time": "09:00",
+          "name": "雷峰塔景区",
+          "description": "登雷峰塔，俯瞰西湖全景，重温白蛇传传说。",
+          "location": "南山路15号",
+          "duration_minutes": 120,
+          "estimated_cost": 0.0,
+          "poi_id": "B023B09LKR",
+          "poi_category": "spot",
+          "address": "南山路15号",
+          "latitude": 30.230934,
+          "longitude": 120.148849,
+          "poi_status": "verified",
+          "map_source": "amap"
+        },
+        {
+          "time": "18:00",
+          "name": "肯德基(市民中心1号店)",
+          "description": "在市民中心附近简单用餐，方便返程。",
+          "location": "四季青街道解放东路18号市民中心H座南区一层",
+          "duration_minutes": 45,
+          "estimated_cost": 50.0,
+          "poi_id": "B0FFIA7XEF",
+          "poi_category": "meal",
+          "address": "四季青街道解放东路18号市民中心H座南区一层",
+          "latitude": 30.245469,
+          "longitude": 120.210108,
+          "poi_status": "verified",
+          "map_source": "amap"
+        }
+      ],
+      "weather": {
+        "status": "available",
+        "condition": "小雨",
+        "low_celsius": 18.0,
+        "high_celsius": 22.0,
+        "source": "amap"
+      },
+      "weather_advice": ["建议携带雨具，路面湿滑时注意防滑。"]
+    }
+  ],
+  "total_estimated_cost": 650.0,
+  "map_enrichment_status": "completed"
+}

@@ -47,6 +47,61 @@ def test_search_pois_maps_reference_project_fields(config):
     assert places[0].coordinates == Coordinates(120.1, 30.2)
 
 
+def test_search_pois_discards_explicitly_wrong_provider_region(config):
+    def handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "status": "1",
+                "pois": [
+                    {
+                        "id": "beijing",
+                        "name": "天安门",
+                        "address": "北京市东城区",
+                        "city": ["北京市"],
+                        "pname": "北京市",
+                        "adname": "东城区",
+                        "location": "116.4,39.9",
+                    },
+                    {
+                        "id": "hangzhou",
+                        "name": "西湖",
+                        "address": "杭州市西湖区",
+                        "city": ["杭州市"],
+                        "pname": "浙江省",
+                        "adname": "西湖区",
+                        "location": "120.1,30.2",
+                    },
+                ],
+            },
+        )
+
+    places = client(config, handler).search_pois("景点", city="杭州", limit=5)
+
+    assert [place.provider_id for place in places] == ["hangzhou"]
+    assert places[0].city == "杭州市"
+
+
+def test_search_pois_keeps_legacy_results_without_region_metadata(config):
+    def handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "status": "1",
+                "pois": [
+                    {
+                        "id": "poi1",
+                        "name": "西湖",
+                        "address": "杭州西湖区",
+                        "location": "120.1,30.2",
+                    }
+                ],
+            },
+        )
+
+    assert client(config, handler).search_pois("西湖", city="杭州", limit=5)[0].provider_id == "poi1"
+
+
 def test_plan_route_uses_amap_driving_fields(config):
     def handler(request):
         assert request.url.path == "/v3/direction/driving"
