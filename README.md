@@ -1,17 +1,17 @@
 # 觅旅（MiliTravel）
 
-觅旅是旅行规划项目。目前仓库以 Python 3.11+ 后端为主，业务代码位于 `backend/app/`，测试位于 `backend/tests/`；前端目录尚未建立。
+觅旅是旅行规划项目。当前仓库是 Python 3.11+ 后端，业务代码在 `backend/app/`，测试在 `backend/tests/`；前端尚未建立。长期目标见 [软件开发文档](觅旅-MoMA软件开发文档.md)，当前执行基线见 [路线图](docs/roadmap.md)。
 
-## 项目状态
+## 项目状态（2026-09-29）
 
-| 阶段 | 状态 | 已有能力或下一步 |
+| 阶段 | 状态 | 当前代码 |
 | --- | --- | --- |
-| P0 | 已完成 | `TripRequest` / `Itinerary` 契约、`POST /api/trip/generate`、MoMA 生成与校验、离线测试 |
-| P1 基础设施（成员 C） | 已完成 | 高德 POI/驾车及步行路线客户端、天气客户端、可替换接口、错误模型、配置与离线 mock |
-| P1 业务接入（成员 C） | 待开发 | 用真实 POI 和路线补充行程；接入天气预报并增强行程建议 |
-| P2 | 计划中 | 局部修改、多轮状态管理和 Agent 编排 |
+| P0 | 已完成 | `TripRequest` / `Itinerary`、`POST /api/trip/generate`、MoMA 生成与校验 |
+| P1 | 已进入 `main` | 候选 POI ID 校验、高德地点/路线补全、进程内地图缓存、逐日天气与轻量建议 |
+| 生成链路修复 | 已进入本地 `main` | `6f76009`，包含生成补全修复和杭州真实生成样例 |
+| P2 | 已分工、待开发 | [差距对比与 Issue 清单](docs/p2-issues.md)：A/B/C 的分支、工作范围、内容与验收 |
 
-地图和天气客户端目前尚未接入 `POST /api/trip/generate` 的业务流程；该接口现阶段仍返回 P0 的 `Itinerary`。P1 任务和验收条件见 [团队分工](docs/team-roles.md)。
+`/api/chat` 已有原始 MoMA 对话转发，但不是行程会话或多轮编辑接口。Redis adapter 和天气自动调度尚未实现，也不是 P2 核心完成门槛。
 
 ## 本地运行
 
@@ -23,21 +23,18 @@ if (-not (Test-Path backend/.env)) { Copy-Item backend/.env.example backend/.env
 uvicorn backend.app.main:app --reload
 ```
 
-访问 `http://127.0.0.1:8000/health` 检查启动状态；`http://127.0.0.1:8000/docs` 查看当前 OpenAPI。调用真实 MoMA 生成行程前，需要在本地 `backend/.env` 中填写 `MOMA_API_KEY`。地图、天气密钥在应用启动和离线测试时不是必需的；调用对应真实客户端时才需要配置。不要提交 `.env` 或真实密钥。
+访问 `http://127.0.0.1:8000/health` 和 `http://127.0.0.1:8000/docs`。真实 MoMA 生成需要在本地 `backend/.env` 设置 `MOMA_API_KEY`；真实地图/天气调用还需对应高德密钥。离线测试与应用启动不要求地图/天气密钥。不要提交 `.env` 或真实密钥。
 
 ```powershell
-python -m pytest
+python -m pytest -q
 python -m ruff check .
 python -m ruff format --check .
 ```
 
-仓库级 Ruff 检查目前仍有部分 P0 文件的历史问题；新 PR 至少应保证改动文件通过检查，并在 PR 中记录全量检查结果。
+2026-09-29 的本地 `main`（`6f76009`）上离线测试为 142 passed。杭州真实生成样例保存在 `docs/fixtures/trip-generate-hangzhou-20260929.json`；真实外部服务联调不属于默认测试套件。仓库级 Ruff 仍可能报告历史问题；新 PR 至少应保证改动文件通过，并记录全量结果。
 
-开发流程见 [开发指南](docs/development.md)，外部接口见 [API 契约](docs/api-contract.md)，代码分层见 [架构](docs/architecture.md)，协作规则见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+接口见 [API 契约](docs/api-contract.md)，代码边界见 [架构](docs/architecture.md)，开发流程见 [开发指南](docs/development.md)，团队工作面见 [协作分工](docs/team-roles.md)。
 
 ## 参考项目
 
-本地 `repo_inspect_20260923/` 用于参考高德和天气的后端设计，不属于本仓库，也不应提交。后续业务接入以本仓库的接口契约和测试为准。
-## 后续迭代安排
-
-POI 命中率、缓存、天气预报和成员 A/B/C 的具体分工见 [docs/roadmap.md](docs/roadmap.md)。执行顺序是 POI 质量基线 → 可替换缓存（先内存、后 Redis）→ 天气展示与轻量建议；天气自动重排另行评审。
+本地 `repo_inspect_20260923/` 用来核对能力差距，被 Git 忽略，不属于本项目的交付代码。两项目的 API 路径、行程数据模型和存储结构不同；P2 以本仓库契约为准。
