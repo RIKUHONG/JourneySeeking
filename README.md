@@ -8,8 +8,8 @@
 | --- | --- | --- |
 | P0 | 已完成 | `TripRequest` / `Itinerary`、`POST /api/trip/generate`、MoMA 生成与校验 |
 | P1 | 已进入 `main` | 候选 POI ID 校验、高德地点/路线补全、进程内地图缓存、逐日天气与轻量建议 |
-| 生成链路修复 | 待合并 | `fix/trip-generate-weather-e2e`，不计入 `main` 已完成状态 |
-| P2 | 规划中 | [差距对比与 Issue 草案](docs/p2-issues.md)：城市覆盖、RAG、保存/编辑/多轮、编排、前端、导出和验收 |
+| 生成链路修复 | 已进入本地 `main` | `6f76009`，包含生成补全修复和杭州真实生成样例 |
+| P2 | 已分工、待开发 | [差距对比与 Issue 清单](docs/p2-issues.md)：A/B/C 的分支、工作范围、内容与验收 |
 
 `/api/chat` 已有原始 MoMA 对话转发，但不是行程会话或多轮编辑接口。Redis adapter 和天气自动调度尚未实现，也不是 P2 核心完成门槛。
 
@@ -31,7 +31,7 @@ python -m ruff check .
 python -m ruff format --check .
 ```
 
-2026-09-29 的 `main` 上离线测试为 136 passed。仓库级 Ruff 仍可能报告历史问题；新 PR 至少应保证改动文件通过，并记录全量结果。真实外部服务联调不属于默认测试套件。
+2026-09-29 的本地 `main`（`6f76009`）上离线测试为 142 passed。杭州真实生成样例保存在 `docs/fixtures/trip-generate-hangzhou-20260929.json`；真实外部服务联调不属于默认测试套件。仓库级 Ruff 仍可能报告历史问题；新 PR 至少应保证改动文件通过，并记录全量结果。
 
 接口见 [API 契约](docs/api-contract.md)，代码边界见 [架构](docs/architecture.md)，开发流程见 [开发指南](docs/development.md)，团队工作面见 [协作分工](docs/team-roles.md)。
 

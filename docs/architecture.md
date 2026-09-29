@@ -1,6 +1,6 @@
 # 架构现状与 P2 演进
 
-状态基线：2026-09-29 `main`。当前代码只有后端：`backend/app/main.py` 提供 HTTP 路由，`models/schemas.py` 定义 `TripRequest`/`Itinerary`，`services/` 完成生成、候选、地图和天气补全，`integrations/` 封装 MoMA/高德，`cache/` 提供内存实现。测试在 `backend/tests/`。`frontend/`、存储、RAG、Agent 和导出尚未建立。
+状态基线：2026-09-29 本地 `main`（`6f76009`）。当前代码只有后端：`backend/app/main.py` 提供 HTTP 路由，`models/schemas.py` 定义 `TripRequest`/`Itinerary`，`services/` 完成生成、候选、地图和天气补全，`integrations/` 封装 MoMA/高德，`cache/` 提供内存实现。测试在 `backend/tests/`。`frontend/`、存储、RAG、Agent 和导出尚未建立。
 
 ```text
 POST /api/trip/generate
@@ -20,4 +20,4 @@ POST /api/trip/generate
 - 存储层保存完整行程版本，供编辑、历史和导出共用；缓存层只加速可重建数据，不保存唯一业务事实。
 - 前端以 `docs/api-contract.md` 与 OpenAPI 为准；天气与 POI 的真实性状态由后端提供。
 
-目标依赖方向为 `前端 → HTTP → services → integrations / storage / cache`。P2-01 先定义身份与版本契约，其余任务按 [P2 Issue 草案](p2-issues.md) 接入。Redis 与天气自动调度是条件任务，不是当前运行链路。
+目标依赖方向为 `前端 → HTTP → services → integrations / storage / cache`。成员 A 的 P2-01 先定义身份与版本契约，其余任务按 [P2 Issue 清单](p2-issues.md) 的 A/B/C 边界接入。Redis 与天气自动调度是条件任务，不是当前运行链路。

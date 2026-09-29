@@ -7,7 +7,7 @@
 - `fix/<主题>`：缺陷修复，例如 `fix/moma-invalid-json`。
 - `docs/<主题>`：文档变更。
 
-P2 任务以 [Issue 草案](docs/p2-issues.md) 的边界和依赖为准，负责人待定。认领时再确定实现人及跨工作面评审人；不得沿用 P1 的个人分配。
+P2 任务以 [Issue 清单](docs/p2-issues.md) 的 A/B/C 分配、分支名、边界和依赖为准。每个 Issue 由指定成员负责集成，评审由其他工作面承担。
 
 禁止直接向 `main` 推送。所有变更通过 Pull Request 合并，并至少由另一位成员完成一次 review。
 
