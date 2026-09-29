@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from backend.app.models.schemas import Itinerary, TripRequest
 from backend.app.services.map_enrichment import MapEnrichmentService
+from backend.app.services.weather_enrichment import WeatherEnrichmentService
 
 
 class ItineraryGenerator(Protocol):
@@ -40,10 +41,14 @@ class ItineraryValidationError(TripServiceError):
 
 class TripService:
     def __init__(
-        self, generator: ItineraryGenerator, map_enricher: MapEnrichmentService | None = None
+        self,
+        generator: ItineraryGenerator,
+        map_enricher: MapEnrichmentService | None = None,
+        weather_enricher: WeatherEnrichmentService | None = None,
     ) -> None:
         self.generator = generator
         self.map_enricher = map_enricher
+        self.weather_enricher = weather_enricher
 
     def generate(self, request: TripRequest) -> Itinerary:
         try:
@@ -117,10 +122,12 @@ class TripService:
         ):
             raise ItineraryValidationError()
 
-        if self.map_enricher is None:
-            return itinerary
-        return self.map_enricher.enrich(
-            itinerary,
-            candidate_pool=candidate_pool,
-            require_poi_ids=candidate_pool is not None,
-        )
+        if self.map_enricher is not None:
+            itinerary = self.map_enricher.enrich(
+                itinerary,
+                candidate_pool=candidate_pool,
+                require_poi_ids=candidate_pool is not None,
+            )
+        if self.weather_enricher is not None:
+            itinerary = self.weather_enricher.enrich(itinerary)
+        return itinerary
