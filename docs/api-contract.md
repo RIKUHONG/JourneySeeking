@@ -1,6 +1,6 @@
-# 第一版 API 契约
+# 当前 API 契约与 P2 扩展边界
 
-本文档是第一版旅行规划 API 的对外契约。后端模型、路由、测试和 MoMA 生成结果都必须以本文档为准。字段删除或改名必须先经过团队评审；新增字段应保持向后兼容。
+本文档记录 2026-09-29 `main` 已有的旅行规划 API。后端模型、路由、测试和 MoMA 生成结果以当前契约为准。P2 接口尚未实现，具体路径和版本语义由 P2-01 契约 PR 确定，见 [P2 Issue 草案](p2-issues.md)。字段删除或改名必须先经过团队评审；新增字段应保持向后兼容。
 
 ## `POST /api/trip/generate`
 
@@ -51,6 +51,8 @@
 
 HTTP 状态码为 `200 OK` 时返回 `Itinerary`。`days` 必须覆盖请求日期范围内的每一天，日期连续且顺序与请求一致。
 
+当前路由使用 `response_model_exclude_defaults=True`；等于模型默认值的可选字段可能在 HTTP JSON 中省略。下表的 `null`/空数组描述模型语义，不保证每次序列化都显式出现。
+
 ```json
 {
   "destination": "杭州",
@@ -95,6 +97,10 @@ HTTP 状态码为 `200 OK` 时返回 `Itinerary`。`days` 必须覆盖请求日�
 | `days[].activities[].location` | string/null | 活动地点。 |
 | `days[].activities[].duration_minutes` | integer/null | 活动时长，提供时必须大于 `0`。 |
 | `days[].activities[].estimated_cost` | number | 活动预计费用，必须大于等于 `0`。 |
+| `days[].activities[].poi_id` / `poi_category` | string/null | 可选；经候选池或供应商核实的地点 ID 与分类（`spot`/`meal`/`hotel`）。 |
+| `days[].activities[].poi_status` | string | `not_attempted`、`verified`、`not_found`、`ambiguous` 或 `unavailable`。 |
+| `days[].activities[].address` / `latitude` / `longitude` / `map_source` | string/number/null | 可选的已核实地图信息，未知时不得伪造。 |
+| `days[].activities[].route_status` / `route_from_previous` | string/object/null | 相邻活动的路线状态及供应商估算；见下文。 |
 | `days[].weather` | object/null | 可选天气补充，按同一 `DayPlan.date` 对齐；天气服务失败时为 `null`，不影响基础行程。 |
 | `days[].weather.status` | `available`/`unknown` | `available` 表示有供应商预报；`unknown` 表示超出预报覆盖范围或没有该日数据，不能解读为晴天。 |
 | `days[].weather.condition` | string/null | 供应商返回的天气描述；未知时为 `null`。 |
@@ -104,12 +110,13 @@ HTTP 状态码为 `200 OK` 时返回 `Itinerary`。`days` 必须覆盖请求日�
 | `days[].weather.fetched_at` | string/null | 获取时间（ISO-8601）；没有时为 `null`。 |
 | `days[].weather_advice` | array[string] | 可选的轻量天气提示；不得删除、替换或重排行程。 |
 | `total_estimated_cost` | number | 行程预计总费用，必须大于等于 `0`，且不能小于已列活动预计费用之和。可包含尚未单独列出的住宿、交通等费用。 |
+| `map_enrichment_status` | string | `not_attempted`、`completed`、`partial` 或 `unavailable`。 |
 
 第一版统一使用 `activities` 表示每日安排。景点、餐饮、住宿、交通、天气和预算拆分字段属于后续兼容扩展；新增这些字段不能改变现有字段含义。
 
 ## 错误响应
 
-所有业务错误使用统一结构，不向客户端返回 Python traceback、内部路径、完整 Prompt 或 API Key：
+请求校验错误和已映射的 `TripServiceError` 使用以下结构，不向客户端返回 Python traceback、内部路径、完整 Prompt 或 API Key：
 
 ```json
 {
@@ -127,9 +134,8 @@ HTTP 状态码为 `200 OK` 时返回 `Itinerary`。`days` 必须覆盖请求日�
 | `MOMA_TIMEOUT` | `504` | MoMA 请求超时且重试失败。 |
 | `MOMA_INVALID_RESPONSE` | `502` | MoMA 返回内容不是可解析的 JSON 或缺少必要结构。 |
 | `ITINERARY_VALIDATION_ERROR` | `502` | JSON 可解析，但不符合 `Itinerary` 字段或业务规则。 |
-| `MAP_SERVICE_ERROR` | `502` | 地图或 POI 服务失败；接入地图后使用。 |
-| `WEATHER_SERVICE_ERROR` | `502` | 天气服务失败；接入天气后使用。 |
-| `INTERNAL_SERVER_ERROR` | `500` | 未预期的内部错误。 |
+
+未预期异常目前由 FastAPI 默认处理，尚不能保证返回上述结构或 `INTERNAL_SERVER_ERROR`。P2-01 需定义并测试统一 500 行为。`/api/chat` 的供应商错误也尚未纳入行程业务错误映射。
 
 ## 生成器与服务边界
 
@@ -149,7 +155,7 @@ HTTP 状态码为 `200 OK` 时返回 `Itinerary`。`days` 必须覆盖请求日�
 
 ## P1 地图与天气接入约束
 
-地图业务接入后，`POST /api/trip/generate` 在有可注入地图服务时会对 P0 基础行程执行可选补全。所有新增字段均为向后兼容字段；没有地图 Key、搜索失败或路线失败时仍返回基础行程。
+当前 `POST /api/trip/generate` 在基础行程通过校验后依次调用地图和天气补全。所有新增字段均为向后兼容字段；没有地图或天气 Key、搜索或预报失败时保留基础行程。供应商适配器内部有 `MAP_SERVICE_ERROR`/`WEATHER_SERVICE_ERROR` 类型，但当前生成端点将这些可选补全失败降级处理，不以这两个错误码响应。
 
 ### 地点与路线
 
@@ -162,8 +168,14 @@ HTTP 状态码为 `200 OK` 时返回 `Itinerary`。`days` 必须覆盖请求日�
 
 ### 天气与建议
 
-- 预报按日期映射到行程，需说明数据来源及更新时间或可用范围。当前高德天气客户端支持 1 至 4 天，行程允许 3 至 7 天；超出预报范围的日期不能填入实时天气。
+- 预报按日期映射到行程；天气可用时标明数据来源，`fetched_at` 当前可为 `null`。高德天气客户端最多请求 4 天，行程允许 3 至 7 天；覆盖范围取决于请求日期与供应商返回日期的交集，不能保证任意 3～4 天行程都有预报。
 - 雨天等建议必须依据实际预报，不得把天气未知解释为晴天，也不能凭天气推断景点营业状态。
-- 天气不可用时保留基础行程；若增加天气、建议或缺失状态字段，须先定义可选性、日期对齐和兼容行为。
+- 天气不可用时保留基础行程；当前可选天气、建议和缺失状态字段的日期对齐与兼容行为见上文。
 
-地图业务接入采用可选补全降级策略：`MAP_SERVICE_ERROR` 不直接让行程生成请求失败，服务错误映射为 `unavailable` 状态并返回 P0 基础行程。`WEATHER_SERVICE_ERROR` 仍由天气任务另行定义；不能仅因适配器存在就宣称接口会返回该错误码。
+地图业务接入采用可选补全降级策略：服务错误映射为 `unavailable` 状态并返回基础行程；天气服务失败时 `weather` 为 `null`，`weather_advice` 为空数组。
+
+## 其他当前路由与 P2 预留
+
+- `GET /health` 返回 `{"status":"ok"}`，表示进程存活，不是外部供应商就绪检查。
+- `POST /api/chat` 接受 `messages`、`max_tokens`、`temperature`、`top_p` 并转发给 MoMA；不产生 `Itinerary`、行程 ID 或持久化上下文。
+- 保存、列表、详情、删除、单日编辑、会话、导出、Agent 轨迹和独立天气查询路由目前均不存在。P2-01 先定义这些新增接口的 ID、版本、冲突与错误结构；后续 Issue 不得直接复制参考项目的 `/trip/*` 路径或模型。

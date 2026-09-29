@@ -1,6 +1,6 @@
 # P1-3 天气接口契约
 
-本契约基于 `repo_inspect_20260923` 的按日预报结构，并适配当前 `Itinerary.days` 模型。
+本契约记录 2026-09-29 `main` 已接入的按日天气补全。参考项目只用于设计对比，实际行为以本仓库代码和 [API 契约](api-contract.md) 为准。
 
 ## `DayPlan` 可选字段
 
@@ -15,13 +15,13 @@
     "low_celsius": 18,
     "high_celsius": 23,
     "source": "amap",
-    "fetched_at": "2026-09-28T10:00:00Z"
+    "fetched_at": null
   },
   "weather_advice": ["建议携带雨具，路面湿滑时注意防滑。"]
 }
 ```
 
-`weather` 和 `weather_advice` 都是可选的；未接入或失败时，`weather` 为 `null`、`weather_advice` 为空数组，所有既有 `activities` 原样保留。
+`weather` 和 `weather_advice` 都是可选的；未接入或失败时，模型中的 `weather` 为 `null`、`weather_advice` 为空数组，所有既有 `activities` 原样保留。当前 HTTP 响应会省略等于默认值的字段，因此 `null`、空数组和 `fetched_at: null` 不一定在 JSON 中显式出现。
 
 `weather.status` 取值如下：
 
@@ -32,7 +32,8 @@
 
 - 唯一映射键是 `DayPlan.date` 与预报记录的 ISO-8601 `date`，按日历日期相等匹配。
 - 不按数组下标、星期字符串或供应商返回顺序映射；每个行程日最多绑定一条天气记录。
-- 当前高德适配器最多返回 4 天。3～4 天行程可以覆盖全部日期；5～7 天行程只覆盖可用的前 4 天，其余 `DayPlan.weather.status` 必须为 `unknown`。
+- 当前高德适配器每次最多查询 4 天，但是否覆盖行程取决于行程日期与供应商返回日期的交集。不能保证未来任意 3～4 天行程全部有预报；没有同日记录的每一天都为 `unknown`。
+- 当前业务层未填充 `fetched_at`，其值为 `null`；不能把示例时间当成已实现的供应商更新时间。
 
 ## 失败降级与建议边界
 

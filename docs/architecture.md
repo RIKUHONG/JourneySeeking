@@ -1,41 +1,23 @@
-# 觅旅目标架构
+# 架构现状与 P2 演进
 
-## 目录基线
-
-后端业务代码统一放在 `backend/app/`，测试统一放在 `backend/tests/`。地图 P1 业务接入位于 `backend/app/services/map_enrichment.py`，天气业务接入仍待开发。
+状态基线：2026-09-29 `main`。当前代码只有后端：`backend/app/main.py` 提供 HTTP 路由，`models/schemas.py` 定义 `TripRequest`/`Itinerary`，`services/` 完成生成、候选、地图和天气补全，`integrations/` 封装 MoMA/高德，`cache/` 提供内存实现。测试在 `backend/tests/`。`frontend/`、存储、RAG、Agent 和导出尚未建立。
 
 ```text
-Journey_Seeking/
-├── backend/
-│   ├── app/
-│   │   ├── main.py                    # 当前 HTTP 路由与依赖注入
-│   │   ├── models/schemas.py          # TripRequest、Itinerary 等 P0 契约
-│   │   ├── services/                  # 行程生成、校验与地图补全编排
-│   │   ├── integrations/              # MoMA、高德、天气客户端、接口及 mock
-│   │   └── config/settings.py
-│   ├── tests/                          # api/、moma/、integrations/
-│   └── .env.example
-├── docs/
-├── pyproject.toml
-└── docker-compose.yml
+POST /api/trip/generate
+  -> TripService -> ItineraryGenerator -> MoMA
+                 -> MapEnrichmentService -> MapService / MemoryCache
+                 -> WeatherEnrichmentService -> WeatherService
+  -> Itinerary
 ```
 
-## 分层规则
+地图/天气补全只处理通过基础校验的行程。没有可靠 POI 时不填供应商 ID/坐标；没有可靠起终点时不伪造路线；预报按日期匹配，超出供应商范围为 `unknown`。外部补全失败时保留基础行程。`/api/chat` 是原始 MoMA 消息转发，不持有旅行会话。
 
-- `backend/app/main.py`：当前 FastAPI 路由、错误映射和依赖注入；业务规则放在 service 层。后续如拆分 `api/`，仍保持相同边界。
-- `backend/app/models/`：Pydantic 数据模型；`TripRequest` 与 `Itinerary` 是第一版核心契约。
-- `backend/app/services/`：旅行生成、Prompt 构造、校验和编排。
-- `backend/app/integrations/`：MoMA、高德、天气等外部服务适配器；`contracts.py` 与 `errors.py` 定义地图/天气边界，mock 与真实客户端实现同一接口。
-- `backend/app/config/`：环境变量和运行配置。
-- `backend/tests/`：与 `backend/app/` 一一对应的单元和集成测试。
+## P2 分层约束
 
-依赖方向固定为：`HTTP 路由 → services → integrations`。`integrations` 不得反向依赖路由；模型层不发起网络请求。P1 地点/路线和天气补全从行程业务层调用可注入的服务接口，不在供应商客户端内修改 `Itinerary` 或拼接 MoMA Prompt。
+- HTTP 层处理输入输出、错误码和依赖注入；不直接实现 Prompt、业务规则或数据库操作。
+- service 层持有行程版本、局部编辑、编排、Critic 和降级规则；所有修改最终经过 `Itinerary` 与跨字段校验。
+- integration 层继续封装 MoMA、高德等外部服务；RAG 检索返回带来源的片段，不能把攻略文本当实时营业/价格事实。
+- 存储层保存完整行程版本，供编辑、历史和导出共用；缓存层只加速可重建数据，不保存唯一业务事实。
+- 前端以 `docs/api-contract.md` 与 OpenAPI 为准；天气与 POI 的真实性状态由后端提供。
 
-## P1 数据流与降级
-
-当前链路是 `TripRequest → MoMA 生成 → TripService 校验 → 地图可选补全 → Itinerary`。地点、路线和天气只处理已经通过 P0 校验的行程，按需补充可核实的信息；现有必填字段与校验仍然有效。
-
-- 地点搜索返回零结果与供应商失败是两种不同状态；没有可靠 POI 时保留原活动，不写入伪造的 ID 或坐标。
-- 路线要求已知起终点坐标，距离和耗时只能来自对应交通方式的高德结果；缺失路线时保留基础行程。
-- 天气只对应预报覆盖的日期。当前客户端最多提供 4 天预报，3 至 7 天行程中其余日期保持未知。
-- 地图或天气不可用时，核心应用仍可启动，基础行程仍可返回；若对外展示补全状态或告警，字段需先进入 API 契约并经评审。
+目标依赖方向为 `前端 → HTTP → services → integrations / storage / cache`。P2-01 先定义身份与版本契约，其余任务按 [P2 Issue 草案](p2-issues.md) 接入。Redis 与天气自动调度是条件任务，不是当前运行链路。
