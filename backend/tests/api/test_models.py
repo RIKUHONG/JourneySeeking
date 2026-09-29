@@ -5,7 +5,7 @@ from datetime import date
 import pytest
 from pydantic import ValidationError
 
-from backend.app.models.schemas import Activity, DayPlan, ErrorResponse, Itinerary, TripRequest
+from backend.app.models.schemas import Activity, DayPlan, ErrorResponse, Itinerary, TripRequest, WeatherInfo
 
 
 def request_payload(**changes: object) -> dict[str, object]:
@@ -133,6 +133,35 @@ def test_itinerary_and_error_response_validate() -> None:
         "message": "日期错误",
         "request_id": "req_1",
     }
+
+
+def test_day_plan_weather_is_optional_and_supports_unknown_range() -> None:
+    base = {"date": "2026-10-01", "title": "西湖", "activities": []}
+    without_weather = DayPlan.model_validate(base)
+    assert without_weather.weather is None
+    assert without_weather.weather_advice == []
+
+    available = DayPlan.model_validate(
+        {
+            **base,
+            "weather": {
+                "status": "available",
+                "condition": "小雨",
+                "low_celsius": 18,
+                "high_celsius": 23,
+                "source": "amap",
+            },
+            "weather_advice": ["建议携带雨具"],
+        }
+    )
+    assert isinstance(available.weather, WeatherInfo)
+    assert available.weather.status == "available"
+    assert available.weather_advice == ["建议携带雨具"]
+
+    unknown = DayPlan.model_validate({**base, "weather": {"status": "unknown"}})
+    assert unknown.weather is not None
+    assert unknown.weather.status == "unknown"
+    assert unknown.weather.condition is None
 
 
 @pytest.mark.parametrize(

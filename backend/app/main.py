@@ -38,9 +38,11 @@ def get_trip_service() -> TripService:
     from .config.settings import settings
     from .integrations.amap_client import AmapClient
     from .integrations.moma_client import MomaClient
+    from .integrations.weather_client import WeatherClient
     from .services.itinerary_generator import ItineraryGenerator
     from .services.map_enrichment import MapEnrichmentService
     from .services.poi_candidates import collect_candidate_pool
+    from .services.weather_enrichment import WeatherEnrichmentService
 
     map_client = AmapClient(config=settings)
     return TripService(
@@ -51,6 +53,7 @@ def get_trip_service() -> TripService:
             ),
         ),
         map_enricher=MapEnrichmentService(map_client, cache=_map_cache),
+        weather_enricher=WeatherEnrichmentService(WeatherClient(config=settings)),
     )
 
 

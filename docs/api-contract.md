@@ -95,6 +95,14 @@ HTTP 状态码为 `200 OK` 时返回 `Itinerary`。`days` 必须覆盖请求日�
 | `days[].activities[].location` | string/null | 活动地点。 |
 | `days[].activities[].duration_minutes` | integer/null | 活动时长，提供时必须大于 `0`。 |
 | `days[].activities[].estimated_cost` | number | 活动预计费用，必须大于等于 `0`。 |
+| `days[].weather` | object/null | 可选天气补充，按同一 `DayPlan.date` 对齐；天气服务失败时为 `null`，不影响基础行程。 |
+| `days[].weather.status` | `available`/`unknown` | `available` 表示有供应商预报；`unknown` 表示超出预报覆盖范围或没有该日数据，不能解读为晴天。 |
+| `days[].weather.condition` | string/null | 供应商返回的天气描述；未知时为 `null`。 |
+| `days[].weather.low_celsius` | number/null | 最低温度（摄氏）；未知时为 `null`。 |
+| `days[].weather.high_celsius` | number/null | 最高温度（摄氏）；未知时为 `null`。 |
+| `days[].weather.source` | string/null | 数据来源标识，例如 `amap`。 |
+| `days[].weather.fetched_at` | string/null | 获取时间（ISO-8601）；没有时为 `null`。 |
+| `days[].weather_advice` | array[string] | 可选的轻量天气提示；不得删除、替换或重排行程。 |
 | `total_estimated_cost` | number | 行程预计总费用，必须大于等于 `0`，且不能小于已列活动预计费用之和。可包含尚未单独列出的住宿、交通等费用。 |
 
 第一版统一使用 `activities` 表示每日安排。景点、餐饮、住宿、交通、天气和预算拆分字段属于后续兼容扩展；新增这些字段不能改变现有字段含义。

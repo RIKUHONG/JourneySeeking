@@ -63,10 +63,30 @@ class RouteInfo(BaseModel):
     source: str = "amap"
 
 
+class WeatherInfo(BaseModel):
+    """按行程日期对齐的天气补充信息。
+
+    ``unknown`` 只表示该日期没有可用预报（例如超过供应商的四天范围），
+    不应被解释为晴天或其他具体天气。天气服务整体失败时，调用方应保留
+    基础行程并将 ``DayPlan.weather`` 留为 ``None``。
+    """
+
+    status: Literal["available", "unknown"] = "available"
+    condition: NonEmptyText | None = None
+    low_celsius: float | None = Field(default=None, allow_inf_nan=False)
+    high_celsius: float | None = Field(default=None, allow_inf_nan=False)
+    source: NonEmptyText | None = None
+    fetched_at: str | None = None
+
+
 class DayPlan(BaseModel):
     date: date
     title: NonEmptyText
     activities: list[Activity]
+    weather: WeatherInfo | None = Field(default=None, description="按 date 对齐的可选天气")
+    weather_advice: list[NonEmptyText] = Field(
+        default_factory=list, description="天气相关的轻量提示，不改变活动安排"
+    )
 
 
 class Itinerary(BaseModel):
