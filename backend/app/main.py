@@ -31,6 +31,9 @@ async def attach_request_id(request: Request, call_next):
     request.state.request_id = request.headers.get("X-Request-ID") or f"req_{uuid4().hex}"
     response = await call_next(request)
     response.headers["X-Request-ID"] = request.state.request_id
+    content_type = response.headers.get("content-type", "")
+    if content_type.startswith("application/json") and "charset=" not in content_type.lower():
+        response.headers["content-type"] = "application/json; charset=utf-8"
     return response
 
 

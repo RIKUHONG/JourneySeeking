@@ -17,6 +17,9 @@ class Place:
     name: str
     address: str
     coordinates: Coordinates
+    # Optional provider region metadata. Existing integrations may not expose it.
+    city: str | None = None
+    province: str | None = None
 
 
 @dataclass(frozen=True)

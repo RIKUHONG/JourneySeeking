@@ -51,6 +51,11 @@ class ItineraryGenerator:
         candidate_pool = (
             self.candidate_provider(request) if self.candidate_provider is not None else None
         )
+        # An unavailable/empty map search must not turn the optional candidate
+        # constraint into a hard failure for the base itinerary.  The map
+        # enrichment layer can still attempt ordinary name matching later.
+        if candidate_pool is not None and not getattr(candidate_pool, "candidates", ()):
+            candidate_pool = None
         self.last_candidate_pool = candidate_pool
         messages = self.prompt_builder.build_messages(request, candidate_pool)
         last_failure = "MoMA 未返回可用的结构化行程。"
