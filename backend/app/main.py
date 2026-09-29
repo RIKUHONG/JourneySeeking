@@ -11,7 +11,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from .cache import MemoryCache
-from .models.schemas import ErrorResponse, Itinerary, TripRequest
+from .integrations.moma_client import MomaError
+from .models.schemas import ErrorCode, ErrorResponse, Itinerary, TripRequest
 from .services.trip_service import TripService, TripServiceError
 
 app = FastAPI(title="MiliTravel API", version="0.1.0", description="Travel planning backend API")
@@ -77,6 +78,30 @@ async def trip_service_error_handler(request: Request, exc: TripServiceError) ->
     }.get(exc.code, 500)
     body = ErrorResponse(code=exc.code, message=exc.message, request_id=_request_id(request))
     return JSONResponse(status_code=status, content=body.model_dump(mode="json"))
+
+
+@app.exception_handler(MomaError)
+async def chat_provider_error_handler(request: Request, exc: MomaError) -> JSONResponse:
+    """Keep raw chat-provider details out of the public response."""
+
+    body = ErrorResponse(
+        code=ErrorCode.INTERNAL_SERVER_ERROR,
+        message="上游服务暂时不可用",
+        request_id=_request_id(request),
+    )
+    return JSONResponse(status_code=502, content=body.model_dump(mode="json"))
+
+
+@app.exception_handler(Exception)
+async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Return the documented shape for unexpected application failures."""
+
+    body = ErrorResponse(
+        code=ErrorCode.INTERNAL_SERVER_ERROR,
+        message="服务暂时不可用",
+        request_id=_request_id(request),
+    )
+    return JSONResponse(status_code=500, content=body.model_dump(mode="json"))
 
 
 @app.get("/health")

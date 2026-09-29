@@ -5,7 +5,14 @@ from datetime import date
 import pytest
 from pydantic import ValidationError
 
-from backend.app.models.schemas import Activity, DayPlan, ErrorResponse, Itinerary, TripRequest, WeatherInfo
+from backend.app.models.schemas import (
+    Activity,
+    DayPlan,
+    ErrorResponse,
+    Itinerary,
+    TripRequest,
+    WeatherInfo,
+)
 
 
 def request_payload(**changes: object) -> dict[str, object]:

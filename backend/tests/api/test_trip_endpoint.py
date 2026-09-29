@@ -4,8 +4,7 @@ from fastapi.testclient import TestClient
 
 from backend.app.main import app, get_trip_service
 from backend.app.models.schemas import Itinerary
-from backend.app.services.trip_service import MomaTimeoutError, TripService
-
+from backend.app.services.trip_service import MomaTimeoutError
 
 VALID_REQUEST = {
     "destination": "杭州",
@@ -35,9 +34,13 @@ class StubService:
 
 
 def test_generate_trip_returns_itinerary_and_request_id():
-    app.dependency_overrides[get_trip_service] = lambda: StubService(Itinerary.model_validate(VALID_ITINERARY))
+    app.dependency_overrides[get_trip_service] = lambda: StubService(
+        Itinerary.model_validate(VALID_ITINERARY)
+    )
     try:
-        response = TestClient(app).post("/api/trip/generate", json=VALID_REQUEST, headers={"X-Request-ID": "req_test"})
+        response = TestClient(app).post(
+            "/api/trip/generate", json=VALID_REQUEST, headers={"X-Request-ID": "req_test"}
+        )
     finally:
         app.dependency_overrides.clear()
 
@@ -47,7 +50,9 @@ def test_generate_trip_returns_itinerary_and_request_id():
 
 
 def test_generate_trip_maps_request_validation_error():
-    app.dependency_overrides[get_trip_service] = lambda: StubService(Itinerary.model_validate(VALID_ITINERARY))
+    app.dependency_overrides[get_trip_service] = lambda: StubService(
+        Itinerary.model_validate(VALID_ITINERARY)
+    )
     try:
         response = TestClient(app).post("/api/trip/generate", json={"destination": ""})
     finally:
@@ -81,3 +86,20 @@ def test_json_responses_declare_utf8_charset():
 
     assert response.status_code == 200
     assert "charset=utf-8" in response.headers["content-type"]
+
+
+def test_unexpected_trip_error_uses_public_internal_error_shape():
+    app.dependency_overrides[get_trip_service] = lambda: StubService(
+        RuntimeError("private details")
+    )
+    try:
+        response = TestClient(app, raise_server_exceptions=False).post(
+            "/api/trip/generate", json=VALID_REQUEST
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 500
+    assert response.json()["code"] == "INTERNAL_SERVER_ERROR"
+    assert response.json()["request_id"].startswith("req_")
+    assert "private details" not in response.text
