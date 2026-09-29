@@ -11,8 +11,6 @@ from pydantic import ValidationError
 from backend.app.models.schemas import Itinerary, TripRequest
 from backend.app.services.map_enrichment import MapEnrichmentService
 from backend.app.services.weather_enrichment import WeatherEnrichmentService
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -137,7 +135,6 @@ class TripService:
         if self.weather_enricher is not None:
             itinerary = self.weather_enricher.enrich(itinerary)
         return itinerary
-
     @staticmethod
     def _normalize_model_payload(
         payload: dict[str, object], request: TripRequest, candidate_pool: object | None
