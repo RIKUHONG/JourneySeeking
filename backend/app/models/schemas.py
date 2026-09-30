@@ -1,12 +1,26 @@
 """First-version trip API request and response schemas."""
 
 from datetime import date
+from enum import Enum
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, StringConstraints, model_validator
 
 NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 Money = Annotated[float, Field(strict=True, ge=0, allow_inf_nan=False)]
+
+
+class ErrorCode(str, Enum):
+    """Stable error codes exposed by the HTTP API."""
+
+    INVALID_TRIP_REQUEST = "INVALID_TRIP_REQUEST"
+    MOMA_TIMEOUT = "MOMA_TIMEOUT"
+    MOMA_INVALID_RESPONSE = "MOMA_INVALID_RESPONSE"
+    ITINERARY_VALIDATION_ERROR = "ITINERARY_VALIDATION_ERROR"
+    TRIP_NOT_FOUND = "TRIP_NOT_FOUND"
+    TRIP_VERSION_CONFLICT = "TRIP_VERSION_CONFLICT"
+    INVALID_TRIP_VERSION = "INVALID_TRIP_VERSION"
+    INTERNAL_SERVER_ERROR = "INTERNAL_SERVER_ERROR"
 
 
 class TripRequest(BaseModel):
@@ -92,6 +106,10 @@ class DayPlan(BaseModel):
 
 
 class Itinerary(BaseModel):
+    # These fields are optional for backward compatibility with the original
+    # generate response. Save and versioned-operation models require them.
+    trip_id: NonEmptyText | None = None
+    version: int | None = Field(default=None, strict=True, ge=1)
     destination: NonEmptyText
     start_date: date
     end_date: date
@@ -102,8 +120,97 @@ class Itinerary(BaseModel):
         "not_attempted"
     )
 
+    @model_validator(mode="after")
+    def validate_identity_pair(self) -> "Itinerary":
+        if (self.trip_id is None) != (self.version is None):
+            raise ValueError("trip_id 和 version 必须同时提供或同时省略")
+        return self
+
 
 class ErrorResponse(BaseModel):
-    code: NonEmptyText
+    code: ErrorCode
     message: NonEmptyText
     request_id: NonEmptyText
+
+
+class TripSaveRequest(BaseModel):
+    """保存完整行程或创建一个新的行程版本。"""
+
+    itinerary: Itinerary
+    expected_version: int | None = Field(default=None, strict=True, ge=1)
+
+    @model_validator(mode="after")
+    def require_identity_for_save(self) -> "TripSaveRequest":
+        has_identity = self.itinerary.trip_id is not None
+        if has_identity != (self.expected_version is not None):
+            raise ValueError("已有行程必须提供 expected_version，新行程不能提供 expected_version")
+        if self.itinerary.version is not None and self.itinerary.version != self.expected_version:
+            raise ValueError("行程版本与 expected_version 不一致")
+        return self
+
+
+class TripSummary(BaseModel):
+    """历史列表中的有界摘要。"""
+
+    trip_id: NonEmptyText
+    version: int = Field(strict=True, ge=1)
+    destination: NonEmptyText
+    summary: NonEmptyText
+    start_date: date
+    end_date: date
+
+
+class TripListResponse(BaseModel):
+    items: list[TripSummary]
+    next_cursor: NonEmptyText | None = None
+
+
+class TripListQuery(BaseModel):
+    limit: int = Field(default=20, strict=True, ge=1, le=100)
+    cursor: NonEmptyText | None = None
+
+
+class TripVersionSummary(BaseModel):
+    trip_id: NonEmptyText
+    version: int = Field(strict=True, ge=1)
+    created_at: str
+    summary: NonEmptyText
+
+
+class TripVersionsResponse(BaseModel):
+    trip_id: NonEmptyText
+    current_version: int = Field(strict=True, ge=1)
+    items: list[TripVersionSummary]
+
+
+class TripEditRequest(BaseModel):
+    """单日编辑的契约基础；编辑算法由成员 B 实现。"""
+
+    expected_version: int = Field(strict=True, ge=1)
+    date: date
+    instruction: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)
+    ]
+
+
+class TripEditResponse(BaseModel):
+    trip_id: NonEmptyText
+    version: int = Field(strict=True, ge=1)
+    itinerary: Itinerary
+    change_summary: list[NonEmptyText] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_response_identity(self) -> "TripEditResponse":
+        if self.itinerary.trip_id != self.trip_id or self.itinerary.version != self.version:
+            raise ValueError("编辑响应的行程身份与版本不一致")
+        return self
+
+
+class TripExportFormat(str, Enum):
+    MARKDOWN = "markdown"
+    PDF = "pdf"
+
+
+class TripExportQuery(BaseModel):
+    version: int | None = Field(default=None, strict=True, ge=1)
+    format: TripExportFormat
