@@ -28,4 +28,6 @@ P2 的 A/B/C 分工、指定分支、依赖和验收见 [P2 Issue 清单](p2-iss
 
 `MapService`、`WeatherService` 的接口及错误类型在 `backend/app/integrations/`；`MapEnrichmentService` 和 `WeatherEnrichmentService` 已进入生成链路。地图使用进程内缓存，失效时按未命中处理；天气最多查询四天，缺失日期为未知。P2 不应重复建立这些基础设施。`/api/chat` 是普通消息转发，不保存行程状态。
 
+P2-02 的城市解析和候选池位于 `backend/app/services/city_resolution.py` 与 `poi_candidates.py`。候选池默认要求景点、餐饮、住宿各至少一个可信候选；候选缺少 ID/坐标、显式城市不匹配、分类不足或地图失败时记录诊断并让生成链路回退到基础行程。新增候选规则应先补充 `backend/tests/api/test_city_candidates.py`，不能在测试中使用真实 Key。
+
 新后端模块添加对应离线测试。前端从 P2-01 契约 mock 开发，最终按 OpenAPI 接口集成。不得提交密钥、真实用户数据、本地数据库或 `repo_inspect_20260923/`。
