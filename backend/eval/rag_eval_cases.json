@@ -1,0 +1,6 @@
+[
+  {"id": "hangzhou_lake", "destination": "杭州", "query": "西湖 慢游", "expected": ["西湖与湖滨"]},
+  {"id": "hangzhou_culture", "destination": "杭州", "query": "历史文化 灵隐寺", "expected": ["历史文化"]},
+  {"id": "beijing_food", "destination": "北京", "query": "地方饮食 烤鸭", "expected": ["地方饮食"]},
+  {"id": "chengdu_food", "destination": "成都", "query": "美食 火锅", "expected": ["地方美食"]}
+]
