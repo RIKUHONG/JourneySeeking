@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from backend.app.integrations.contracts import MapService, Place
+from backend.app.integrations.contracts import Coordinates, MapService, Place
+from backend.app.integrations.errors import MapServiceError
+from backend.app.services.city_resolution import (
+    CityCoverageStatus,
+    CityResolution,
+    resolve_city,
+)
 
 
 class PoiCategory(StrEnum):
@@ -40,6 +47,43 @@ class PoiCandidate:
 class PoiCandidatePool:
     city: str
     candidates: tuple[PoiCandidate, ...]
+    resolution: CityResolution = field(
+        default_factory=lambda: CityResolution(
+            requested="",
+            city="",
+            status=CityCoverageStatus.DYNAMIC,
+            reason="legacy_pool",
+        )
+    )
+    minimum_counts: dict[PoiCategory, int] = field(
+        default_factory=lambda: {category: 1 for category in PoiCategory}
+    )
+    rejected_count: int = 0
+    unavailable_reason: str | None = None
+
+    @property
+    def coverage_status(self) -> CityCoverageStatus:
+        return self.resolution.status
+
+    @property
+    def counts(self) -> dict[str, int]:
+        return {category.value: len(self.for_category(category)) for category in PoiCategory}
+
+    @property
+    def shortages(self) -> dict[str, int]:
+        return {
+            category.value: max(0, minimum - len(self.for_category(category)))
+            for category, minimum in self.minimum_counts.items()
+            if len(self.for_category(category)) < minimum
+        }
+
+    @property
+    def meets_minimum(self) -> bool:
+        return (
+            self.resolution.status is not CityCoverageStatus.INSUFFICIENT_DATA
+            and self.unavailable_reason is None
+            and not self.shortages
+        )
 
     @property
     def by_id(self) -> dict[str, PoiCandidate]:
@@ -75,15 +119,72 @@ _SEARCHES = (
 
 
 def collect_candidate_pool(
-    map_service: MapService, city: str, *, limit: int = 25
+    map_service: MapService,
+    city: str,
+    *,
+    limit: int = 25,
+    minimum_counts: dict[PoiCategory, int] | None = None,
 ) -> PoiCandidatePool:
-    """Collect and deduplicate city-scoped candidates before model planning."""
+    """Collect trusted city-scoped candidates before model planning.
+
+    Provider failures are retained as diagnostics so callers can degrade to a
+    basic itinerary without confusing an unavailable map with an empty city.
+    """
+    resolution = resolve_city(city)
+    minimums = minimum_counts or {category: 1 for category in PoiCategory}
     candidates: list[PoiCandidate] = []
     seen: set[str] = set()
+    rejected_count = 0
+    unavailable_reason: str | None = None
     for category, keyword in _SEARCHES:
-        for place in map_service.search_pois(keyword, city=city, limit=limit):
+        try:
+            places = map_service.search_pois(keyword, city=resolution.city, limit=limit)
+        except MapServiceError as exc:
+            unavailable_reason = exc.reason.value
+            break
+        for place in places:
+            if not _is_trusted_place(place, resolution.city):
+                rejected_count += 1
+                continue
             candidate = PoiCandidate.from_place(place, category)
             if candidate.poi_id not in seen:
                 seen.add(candidate.poi_id)
                 candidates.append(candidate)
-    return PoiCandidatePool(city=city, candidates=tuple(candidates))
+    return PoiCandidatePool(
+        city=resolution.city,
+        candidates=tuple(candidates),
+        resolution=resolution,
+        minimum_counts=minimums,
+        rejected_count=rejected_count,
+        unavailable_reason=unavailable_reason,
+    )
+
+
+def _is_trusted_place(place: Place, city: str) -> bool:
+    """Reject malformed, cross-city, or coordinate-less provider results."""
+    if not isinstance(place.provider_id, str) or not place.provider_id.strip():
+        return False
+    if not isinstance(place.name, str) or not place.name.strip():
+        return False
+    coordinates: Coordinates = place.coordinates
+    if not (
+        math.isfinite(coordinates.longitude)
+        and -180 <= coordinates.longitude <= 180
+        and math.isfinite(coordinates.latitude)
+        and -90 <= coordinates.latitude <= 90
+    ):
+        return False
+
+    requested = _city_key(city)
+    explicit_city = _city_key(place.city or "")
+    if explicit_city and not _city_matches(requested, explicit_city):
+        return False
+    return bool(explicit_city) or bool(place.address and requested in _city_key(place.address))
+
+
+def _city_key(value: str) -> str:
+    return value.replace(" ", "").replace("市", "").replace("省", "").casefold()
+
+
+def _city_matches(requested: str, candidate: str) -> bool:
+    return requested == candidate
