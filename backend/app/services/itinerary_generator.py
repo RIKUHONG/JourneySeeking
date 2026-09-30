@@ -45,12 +45,14 @@ class ItineraryGenerator:
         self.max_repair_attempts = max_repair_attempts
         self.candidate_provider = candidate_provider
         self.last_candidate_pool = None
+        self.last_candidate_diagnostics = None
 
     def generate(self, request: Any) -> str:
         """Return normalized JSON text for a trip request."""
         candidate_pool = (
             self.candidate_provider(request) if self.candidate_provider is not None else None
         )
+        self.last_candidate_diagnostics = candidate_pool
         # An unavailable or below-threshold map search must not turn the
         # optional candidate constraint into a hard failure for the base
         # itinerary. The pool remains available to callers for diagnostics.

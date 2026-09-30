@@ -72,11 +72,20 @@ _PROVINCES = {
     "新疆",
     "云南",
     "浙江",
+    "香港",
+    "澳门",
+    "广西壮族",
+    "宁夏回族",
+    "新疆维吾尔",
 }
 
 
 def _key(value: str) -> str:
-    return re.sub(r"[\s,，。·]+", "", value).removesuffix("省").removesuffix("市")
+    key = re.sub(r"[\s,，。·]+", "", value)
+    for suffix in ("特别行政区", "自治区", "省", "市"):
+        if key.endswith(suffix):
+            return key[: -len(suffix)]
+    return key
 
 
 def resolve_city(destination: str) -> CityResolution:

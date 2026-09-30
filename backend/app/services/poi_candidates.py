@@ -187,4 +187,4 @@ def _city_key(value: str) -> str:
 
 
 def _city_matches(requested: str, candidate: str) -> bool:
-    return requested in candidate or candidate in requested
+    return requested == candidate
