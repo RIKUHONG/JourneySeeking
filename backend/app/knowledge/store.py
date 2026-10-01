@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections import Counter
 from datetime import date
@@ -82,7 +83,9 @@ def _chunk_document(document: KnowledgeDocument, body: str) -> list[KnowledgeChu
         sections.append((current_title, current_lines))
 
     chunks: list[KnowledgeChunk] = []
-    document_id = Path(document.source).stem or Path(document.path).stem
+    source_name = Path(document.source).stem or Path(document.path).stem
+    source_hash = hashlib.sha256(document.source.encode("utf-8")).hexdigest()[:10]
+    document_id = f"{source_name}-{source_hash}"
     for index, (title, lines) in enumerate(sections, start=1):
         content = "\n".join(lines).strip()
         if not content:
