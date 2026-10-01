@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from datetime import date
 from pathlib import Path
 
 from .models import KnowledgeChunk, KnowledgeDocument
@@ -13,6 +14,7 @@ class KnowledgeBaseError(RuntimeError):
     """Raised when the knowledge base cannot be loaded or is invalid."""
 
 
+DEFAULT_MAX_AGE_DAYS = 365
 _METADATA_RE = re.compile(r"\A<!--\s*(.*?)\s*-->", re.DOTALL)
 _TOKEN_RE = re.compile(r"[\u4e00-\u9fff]+|[a-zA-Z][a-zA-Z0-9_-]{1,}")
 
@@ -25,6 +27,21 @@ def _tokens(value: str) -> list[str]:
         else:
             tokens.append(token.casefold())
     return tokens
+
+
+def parse_source_version(value: str) -> date:
+    try:
+        return date.fromisoformat(value.strip())
+    except ValueError as exc:
+        raise KnowledgeBaseError("source_version 必须是 YYYY-MM-DD 日期") from exc
+
+
+def is_fresh(value: str, *, as_of: date, max_age_days: int = DEFAULT_MAX_AGE_DAYS) -> bool:
+    if max_age_days < 0:
+        raise ValueError("max_age_days 不能为负数")
+    version_date = parse_source_version(value)
+    age_days = (as_of - version_date).days
+    return 0 <= age_days <= max_age_days
 
 
 def _parse_header(text: str, path: Path) -> tuple[dict[str, str], str]:
@@ -65,12 +82,13 @@ def _chunk_document(document: KnowledgeDocument, body: str) -> list[KnowledgeChu
         sections.append((current_title, current_lines))
 
     chunks: list[KnowledgeChunk] = []
+    document_id = Path(document.source).stem or Path(document.path).stem
     for index, (title, lines) in enumerate(sections, start=1):
         content = "\n".join(lines).strip()
         if not content:
             continue
         tags = tuple(dict.fromkeys(_tokens(f"{title} {content}")))
-        chunk_id = f"{document.destination}:{title}:{index}"
+        chunk_id = f"{document.destination}:{document_id}:{title}:{index}"
         chunks.append(
             KnowledgeChunk(
                 chunk_id=chunk_id,
@@ -97,7 +115,14 @@ class KnowledgeBase:
         }
 
     @classmethod
-    def from_directory(cls, directory: Path) -> KnowledgeBase:
+    def from_directory(
+        cls,
+        directory: Path,
+        *,
+        as_of: date | None = None,
+        max_age_days: int = DEFAULT_MAX_AGE_DAYS,
+    ) -> KnowledgeBase:
+        as_of = as_of or date.today()  # noqa: DTZ011 - date-only freshness policy
         if not directory.exists():
             raise KnowledgeBaseError(f"知识库目录不存在：{directory}")
         documents: list[KnowledgeDocument] = []
@@ -114,6 +139,8 @@ class KnowledgeBase:
                 title=metadata["title"],
                 path=str(path),
             )
+            if not is_fresh(document.source_version, as_of=as_of, max_age_days=max_age_days):
+                continue
             document_chunks = _chunk_document(document, body)
             if not document_chunks:
                 raise KnowledgeBaseError(f"知识文档没有可检索内容：{path.name}")
@@ -165,5 +192,9 @@ class KnowledgeBase:
 DEFAULT_KNOWLEDGE_DIR = Path(__file__).resolve().parents[2] / "data" / "knowledge"
 
 
-def load_default_knowledge_base() -> KnowledgeBase:
-    return KnowledgeBase.from_directory(DEFAULT_KNOWLEDGE_DIR)
+def load_default_knowledge_base(
+    *, as_of: date | None = None, max_age_days: int = DEFAULT_MAX_AGE_DAYS
+) -> KnowledgeBase:
+    return KnowledgeBase.from_directory(
+        DEFAULT_KNOWLEDGE_DIR, as_of=as_of, max_age_days=max_age_days
+    )
