@@ -1,0 +1,9 @@
+[
+  {"id": "hangzhou_lake", "destination": "杭州", "query": "适合慢游和骑行的湖边安排", "expected": ["西湖与湖滨"], "expect_hit": true},
+  {"id": "hangzhou_culture", "destination": "杭州", "query": "寺庙和博物馆的历史文化安排", "expected": ["历史文化"], "expect_hit": true},
+  {"id": "beijing_food", "destination": "北京", "query": "烤鸭和炸酱面", "expected": ["地方饮食"], "expect_hit": true},
+  {"id": "chengdu_food", "destination": "成都", "query": "不太能吃辣，想找轻松活动", "expected": ["休闲与自然"], "expect_hit": true},
+  {"id": "hangzhou_no_match", "destination": "杭州", "query": "极地科考和沙漠探险", "expected": [], "expect_hit": false},
+  {"id": "beijing_no_cross_city", "destination": "北京", "query": "西湖和灵隐寺", "expected": [], "expect_hit": false},
+  {"id": "unknown_city", "destination": "上海", "query": "城市文化和美食", "expected": [], "expect_hit": false}
+]
