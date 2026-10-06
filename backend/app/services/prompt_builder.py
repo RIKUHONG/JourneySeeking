@@ -11,7 +11,10 @@ class PromptBuilder:
     """Build MoMA chat messages for the first-version itinerary contract."""
 
     def build_messages(
-        self, request: Any, candidate_pool: Any | None = None
+        self,
+        request: Any,
+        candidate_pool: Any | None = None,
+        knowledge_chunks: Sequence[Any] = (),
     ) -> list[dict[str, str]]:
         return [
             {
@@ -24,11 +27,16 @@ class PromptBuilder:
             },
             {
                 "role": "user",
-                "content": self._build_user_prompt(request, candidate_pool),
+                "content": self._build_user_prompt(request, candidate_pool, knowledge_chunks),
             },
         ]
 
-    def _build_user_prompt(self, request: Any, candidate_pool: Any | None = None) -> str:
+    def _build_user_prompt(
+        self,
+        request: Any,
+        candidate_pool: Any | None = None,
+        knowledge_chunks: Sequence[Any] = (),
+    ) -> str:
         trip_context = {
             "destination": self._value(request, "destination"),
             "start_date": self._value(request, "start_date"),
@@ -49,6 +57,22 @@ class PromptBuilder:
                 + json.dumps(candidate_pool.prompt_payload(), ensure_ascii=False)
             )
 
+        knowledge_text = ""
+        if knowledge_chunks:
+            knowledge_payload = [
+                {
+                    "title": chunk.title,
+                    "text": chunk.text,
+                    "source": chunk.source,
+                    "source_version": chunk.source_version,
+                }
+                for chunk in knowledge_chunks
+            ]
+            knowledge_text = (
+                "带来源的攻略背景（仅作规划参考，不代表实时营业、价格或已核实 POI）：\n"
+                + json.dumps(knowledge_payload, ensure_ascii=False)
+            )
+
         return "\n".join(
             [
                 "请根据以下旅行需求生成第一版结构化行程。",
@@ -65,6 +89,7 @@ class PromptBuilder:
                 f"- hotel_level: {trip_context['hotel_level']}",
                 f"- special_notes: {trip_context['special_notes']}",
                 candidate_text,
+                knowledge_text,
                 "JSON 顶层结构必须完全匹配：",
                 self._json_contract(),
                 (

@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from backend.app.knowledge import KnowledgeChunk
 from backend.app.services.prompt_builder import PromptBuilder
 
 
@@ -102,3 +103,23 @@ def test_prompt_does_not_include_secret_or_internal_path_text():
     assert "traceback" not in content
     assert "e:\\" not in content
     assert "c:\\" not in content
+
+
+def test_prompt_includes_cited_knowledge_with_non_realtime_boundary():
+    chunk = KnowledgeChunk(
+        chunk_id="hangzhou:guide:history:1",
+        destination="杭州",
+        title="历史文化",
+        text="灵隐寺适合文化主题。",
+        source="curated-guide.md",
+        source_version="2026-10-01",
+    )
+
+    content = flatten_message_content(
+        PromptBuilder().build_messages(make_trip_request(), knowledge_chunks=[chunk])
+    )
+
+    assert "curated-guide.md" in content
+    assert "2026-10-01" in content
+    assert "灵隐寺适合文化主题" in content
+    assert "不代表实时营业、价格或已核实 POI" in content
