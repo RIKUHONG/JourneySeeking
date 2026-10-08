@@ -5,18 +5,28 @@ from __future__ import annotations
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Query, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from .cache import MemoryCache
 from .integrations.moma_client import MomaError
-from .models.schemas import ErrorCode, ErrorResponse, Itinerary, TripRequest
+from .models.schemas import (
+    ErrorCode,
+    ErrorResponse,
+    Itinerary,
+    TripListResponse,
+    TripRequest,
+    TripSaveRequest,
+    TripVersionsResponse,
+)
 from .services.trip_service import TripService, TripServiceError
+from .storage import SQLiteTripRepository, TripNotFoundError, TripVersionConflictError
 
 app = FastAPI(title="MiliTravel API", version="0.1.0", description="Travel planning backend API")
 _map_cache = MemoryCache(default_ttl_seconds=300)
+_trip_repository: SQLiteTripRepository | None = None
 
 
 def _request_id(request: Request) -> str:
@@ -61,10 +71,33 @@ def get_trip_service() -> TripService:
     )
 
 
+def get_trip_repository() -> SQLiteTripRepository:
+    global _trip_repository
+    if _trip_repository is None:
+        from .config.settings import settings
+
+        _trip_repository = SQLiteTripRepository(settings.trip_database_path)
+    return _trip_repository
+
+
 @app.exception_handler(RequestValidationError)
 async def request_validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    error_code = ErrorCode.INVALID_TRIP_REQUEST
+    if request.url.path == "/api/trip/save":
+        version_error = any(
+            any(str(part) in {"version", "expected_version"} for part in error["loc"])
+            for error in exc.errors()
+        )
+        if version_error:
+            error_code = ErrorCode.INVALID_TRIP_VERSION
     body = ErrorResponse(
-        code="INVALID_TRIP_REQUEST", message="Invalid trip request", request_id=_request_id(request)
+        code=error_code,
+        message=(
+            "行程版本必须是正整数且与当前行程一致"
+            if error_code is ErrorCode.INVALID_TRIP_VERSION
+            else "Invalid trip request"
+        ),
+        request_id=_request_id(request),
     )
     return JSONResponse(status_code=422, content=body.model_dump(mode="json"))
 
@@ -78,6 +111,28 @@ async def trip_service_error_handler(request: Request, exc: TripServiceError) ->
     }.get(exc.code, 500)
     body = ErrorResponse(code=exc.code, message=exc.message, request_id=_request_id(request))
     return JSONResponse(status_code=status, content=body.model_dump(mode="json"))
+
+
+@app.exception_handler(TripNotFoundError)
+async def trip_not_found_handler(request: Request, exc: TripNotFoundError) -> JSONResponse:
+    body = ErrorResponse(
+        code=ErrorCode.TRIP_NOT_FOUND,
+        message="行程或指定版本不存在",
+        request_id=_request_id(request),
+    )
+    return JSONResponse(status_code=404, content=body.model_dump(mode="json"))
+
+
+@app.exception_handler(TripVersionConflictError)
+async def trip_version_conflict_handler(
+    request: Request, exc: TripVersionConflictError
+) -> JSONResponse:
+    body = ErrorResponse(
+        code=ErrorCode.TRIP_VERSION_CONFLICT,
+        message="行程已被其他请求更新，请重新读取最新版本",
+        request_id=_request_id(request),
+    )
+    return JSONResponse(status_code=409, content=body.model_dump(mode="json"))
 
 
 @app.exception_handler(MomaError)
@@ -115,6 +170,59 @@ def generate_trip(
     service: TripService = Depends(get_trip_service),  # noqa: B008
 ) -> Itinerary:
     return service.generate(request)
+
+
+@app.post("/api/trip/save", response_model=Itinerary)
+def save_trip(
+    request: TripSaveRequest,
+    repository: SQLiteTripRepository = Depends(get_trip_repository),  # noqa: B008
+) -> Itinerary:
+    if request.itinerary.trip_id is None:
+        return repository.create(request.itinerary)
+    return repository.save_version(request.itinerary, expected_version=request.expected_version)  # type: ignore[arg-type]
+
+
+@app.get("/api/trip", response_model=TripListResponse)
+def list_trips(
+    limit: int = Query(default=20, ge=1, le=100),
+    cursor: str | None = Query(default=None),
+    repository: SQLiteTripRepository = Depends(get_trip_repository),  # noqa: B008
+) -> TripListResponse:
+    return repository.list(limit=limit, cursor=cursor)
+
+
+@app.get("/api/trip/{trip_id}", response_model=Itinerary)
+def get_trip(
+    trip_id: str,
+    repository: SQLiteTripRepository = Depends(get_trip_repository),  # noqa: B008
+) -> Itinerary:
+    return repository.get_current(trip_id)
+
+
+@app.get("/api/trip/{trip_id}/versions", response_model=TripVersionsResponse)
+def list_trip_versions(
+    trip_id: str,
+    repository: SQLiteTripRepository = Depends(get_trip_repository),  # noqa: B008
+) -> TripVersionsResponse:
+    return repository.list_versions(trip_id)
+
+
+@app.get("/api/trip/{trip_id}/versions/{version}", response_model=Itinerary)
+def get_trip_version(
+    trip_id: str,
+    version: int,
+    repository: SQLiteTripRepository = Depends(get_trip_repository),  # noqa: B008
+) -> Itinerary:
+    return repository.get_version(trip_id, version)
+
+
+@app.delete("/api/trip/{trip_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_trip(
+    trip_id: str,
+    repository: SQLiteTripRepository = Depends(get_trip_repository),  # noqa: B008
+) -> Response:
+    repository.delete(trip_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 class ChatMessage(BaseModel):
