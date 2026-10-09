@@ -58,8 +58,10 @@ class Generator:
         self.last_candidate_pool = None
         self.last_candidate_diagnostics = None
         self.knowledge_chunks = ()
+        self.call_count = 0
 
     def generate(self, trip_request, *, knowledge_chunks=()):
+        self.call_count += 1
         self.knowledge_chunks = tuple(knowledge_chunks)
         return json.dumps(self.result, ensure_ascii=False)
 
@@ -121,6 +123,28 @@ def test_step_timeout_is_enforced() -> None:
         ).run(request())
     assert error.value.code == "STEP_TIMEOUT"
     assert error.value.trace[-1].failure_category == "timeout"
+
+
+def test_knowledge_timeout_is_not_degraded_or_followed_by_generation() -> None:
+    generator = Generator()
+    times = iter([0.0, 0.1, 0.1, 2.0])
+
+    with pytest.raises(OrchestrationError) as error:
+        TripOrchestrator(
+            TripService(generator),
+            knowledge=Knowledge(),
+            step_timeout_seconds=1,
+            clock=lambda: next(times),
+        ).run(request())
+
+    assert error.value.code == "STEP_TIMEOUT"
+    assert [step.name for step in error.value.trace] == [
+        "city_resolution",
+        "knowledge_retrieval",
+    ]
+    assert error.value.trace[-1].status is StepStatus.FAILED
+    assert error.value.trace[-1].failure_category == "timeout"
+    assert generator.call_count == 0
 
 
 def test_critic_rejects_budget_violation() -> None:

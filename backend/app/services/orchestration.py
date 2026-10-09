@@ -229,6 +229,8 @@ class TripOrchestrator:
                         "empty_result",
                         "no_match",
                     )
+            except OrchestrationError:
+                raise
             except Exception as exc:  # noqa: BLE001 - optional retrieval must degrade safely
                 trace.pop()
                 self._record_degraded(
