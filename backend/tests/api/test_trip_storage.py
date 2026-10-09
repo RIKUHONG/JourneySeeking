@@ -83,5 +83,9 @@ def test_invalid_version_and_missing_trip_use_contract_errors(tmp_path: Path) ->
         missing = client.get("/api/trip/trip_missing/versions")
         assert missing.status_code == 404
         assert missing.json()["code"] == "TRIP_NOT_FOUND"
+
+        invalid_cursor = client.get("/api/trip?cursor=1")
+        assert invalid_cursor.status_code == 422
+        assert invalid_cursor.json()["code"] == "INVALID_TRIP_REQUEST"
     finally:
         app.dependency_overrides.clear()

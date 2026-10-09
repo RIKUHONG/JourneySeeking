@@ -5,7 +5,12 @@ from pathlib import Path
 import pytest
 
 from backend.app.models.schemas import Itinerary
-from backend.app.storage import SQLiteTripRepository, TripNotFoundError, TripVersionConflictError
+from backend.app.storage import (
+    InvalidTripCursorError,
+    SQLiteTripRepository,
+    TripNotFoundError,
+    TripVersionConflictError,
+)
 
 
 def itinerary(**changes: object) -> Itinerary:
@@ -77,12 +82,42 @@ def test_list_is_bounded_and_cursor_paginates(tmp_path: Path) -> None:
     listing = repository.list(limit=1)
 
     assert len(listing.items) == 1
-    assert listing.next_cursor == "1"
+    assert listing.next_cursor is not None
+    assert listing.next_cursor != "1"
     next_page = repository.list(limit=1, cursor=listing.next_cursor)
     assert len(next_page.items) == 1
     assert {next_page.items[0].trip_id, listing.items[0].trip_id} == {
         first.trip_id,
         second.trip_id,
+    }
+
+
+def test_cursor_is_opaque_and_rejects_malformed_values(tmp_path: Path) -> None:
+    repository = SQLiteTripRepository(tmp_path / "trips.sqlite3")
+    repository.create(itinerary())
+    with pytest.raises(InvalidTripCursorError):
+        repository.list(limit=1, cursor="1")
+    with pytest.raises(InvalidTripCursorError):
+        repository.list(limit=1, cursor="not-a-cursor")
+
+
+def test_keyset_cursor_does_not_duplicate_items_after_update(tmp_path: Path) -> None:
+    repository = SQLiteTripRepository(tmp_path / "trips.sqlite3")
+    first = repository.create(itinerary(summary="第一条"))
+    second = repository.create(itinerary(summary="第二条"))
+    third = repository.create(itinerary(summary="第三条"))
+    first_page = repository.list(limit=1)
+    assert first_page.next_cursor is not None
+
+    repository.save_version(
+        itinerary(trip_id=third.trip_id, version=1, summary="第三条更新"), expected_version=1
+    )
+    second_page = repository.list(limit=1, cursor=first_page.next_cursor)
+    assert second_page.items
+    assert second_page.items[0].trip_id != first_page.items[0].trip_id
+    assert {first.trip_id, second.trip_id, third.trip_id} >= {
+        first_page.items[0].trip_id,
+        second_page.items[0].trip_id,
     }
 
 

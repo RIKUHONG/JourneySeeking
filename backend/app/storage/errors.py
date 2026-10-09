@@ -11,3 +11,7 @@ class TripNotFoundError(TripStorageError):
 
 class TripVersionConflictError(TripStorageError):
     """The expected version is no longer current."""
+
+
+class InvalidTripCursorError(TripStorageError):
+    """The opaque list cursor cannot be decoded or has the wrong shape."""

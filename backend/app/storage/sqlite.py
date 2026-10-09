@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from base64 import urlsafe_b64decode, urlsafe_b64encode
+from binascii import Error as Base64Error
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -16,11 +18,35 @@ from backend.app.models.schemas import (
     TripVersionSummary,
 )
 
-from .errors import TripNotFoundError, TripVersionConflictError
+from .errors import InvalidTripCursorError, TripNotFoundError, TripVersionConflictError
 
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _encode_cursor(updated_at: str, trip_id: str) -> str:
+    payload = json.dumps(
+        {"updated_at": updated_at, "trip_id": trip_id},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+
+def _decode_cursor(cursor: str) -> tuple[str, str]:
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        payload = json.loads(urlsafe_b64decode(cursor + padding).decode("utf-8"))
+        updated_at = payload["updated_at"]
+        trip_id = payload["trip_id"]
+    except (Base64Error, UnicodeError, ValueError, KeyError, TypeError) as exc:
+        raise InvalidTripCursorError() from exc
+    if not isinstance(updated_at, str) or not updated_at:
+        raise InvalidTripCursorError()
+    if not isinstance(trip_id, str) or not trip_id:
+        raise InvalidTripCursorError()
+    return updated_at, trip_id
 
 
 class SQLiteTripRepository:
@@ -117,26 +143,34 @@ class SQLiteTripRepository:
         return self._decode(row)
 
     def list(self, *, limit: int, cursor: str | None = None) -> TripListResponse:
-        offset = 0
-        if cursor is not None:
-            try:
-                offset = int(cursor)
-            except ValueError as exc:
-                raise ValueError("cursor must be an integer offset") from exc
-            if offset < 0:
-                raise ValueError("cursor must not be negative")
+        cursor_key = _decode_cursor(cursor) if cursor is not None else None
         with self._connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT t.trip_id, t.current_version, t.updated_at, v.payload
-                FROM trips AS t
-                JOIN trip_versions AS v
-                  ON v.trip_id = t.trip_id AND v.version = t.current_version
-                ORDER BY t.updated_at DESC, t.trip_id DESC
-                LIMIT ? OFFSET ?
-                """,
-                (limit + 1, offset),
-            ).fetchall()
+            if cursor_key is None:
+                rows = connection.execute(
+                    """
+                    SELECT t.trip_id, t.current_version, t.updated_at, v.payload
+                    FROM trips AS t
+                    JOIN trip_versions AS v
+                      ON v.trip_id = t.trip_id AND v.version = t.current_version
+                    ORDER BY t.updated_at DESC, t.trip_id DESC
+                    LIMIT ?
+                    """,
+                    (limit + 1,),
+                ).fetchall()
+            else:
+                updated_at, trip_id = cursor_key
+                rows = connection.execute(
+                    """
+                    SELECT t.trip_id, t.current_version, t.updated_at, v.payload
+                    FROM trips AS t
+                    JOIN trip_versions AS v
+                      ON v.trip_id = t.trip_id AND v.version = t.current_version
+                    WHERE t.updated_at < ? OR (t.updated_at = ? AND t.trip_id < ?)
+                    ORDER BY t.updated_at DESC, t.trip_id DESC
+                    LIMIT ?
+                    """,
+                    (updated_at, updated_at, trip_id, limit + 1),
+                ).fetchall()
         has_more = len(rows) > limit
         items = [
             TripSummary(
@@ -149,7 +183,11 @@ class SQLiteTripRepository:
             )
             for row in rows[:limit]
         ]
-        next_cursor = str(offset + limit) if has_more else None
+        next_cursor = (
+            _encode_cursor(rows[limit - 1]["updated_at"], rows[limit - 1]["trip_id"])
+            if has_more
+            else None
+        )
         return TripListResponse(items=items, next_cursor=next_cursor)
 
     def save_version(self, itinerary: Itinerary, *, expected_version: int) -> Itinerary:

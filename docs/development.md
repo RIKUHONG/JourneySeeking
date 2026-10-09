@@ -32,4 +32,4 @@ P2-02 的城市解析和候选池位于 `backend/app/services/city_resolution.py
 
 新后端模块添加对应离线测试。前端从 P2-01 契约 mock 开发，最终按 OpenAPI 接口集成。不得提交密钥、真实用户数据、本地数据库或 `repo_inspect_20260923/`。
 
-P2-04 行程存储使用 SQLite，默认路径为 `backend/data/trips.sqlite3`，可通过 `TRIP_DATABASE_PATH` 覆盖。数据库文件不提交到 Git；测试使用临时数据库。保存已有行程必须携带 `expected_version`，版本冲突返回 `TRIP_VERSION_CONFLICT`，存储层不得覆盖较新的版本。
+P2-04 行程存储使用 SQLite，默认路径为 `backend/data/trips.sqlite3`，可通过 `TRIP_DATABASE_PATH` 覆盖。数据库文件不提交到 Git；测试使用临时数据库。保存已有行程必须携带 `expected_version`，版本冲突返回 `TRIP_VERSION_CONFLICT`，存储层不得覆盖较新的版本。历史列表使用服务端编码的 `(updated_at, trip_id)` keyset cursor；非法 cursor 返回 422，不得因解析异常变成 500。

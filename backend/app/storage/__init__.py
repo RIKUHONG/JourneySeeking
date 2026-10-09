@@ -1,6 +1,11 @@
 """Persistent trip storage implementations."""
 
-from .errors import TripNotFoundError, TripVersionConflictError
+from .errors import InvalidTripCursorError, TripNotFoundError, TripVersionConflictError
 from .sqlite import SQLiteTripRepository
 
-__all__ = ["SQLiteTripRepository", "TripNotFoundError", "TripVersionConflictError"]
+__all__ = [
+    "InvalidTripCursorError",
+    "SQLiteTripRepository",
+    "TripNotFoundError",
+    "TripVersionConflictError",
+]

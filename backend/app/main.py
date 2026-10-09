@@ -22,7 +22,12 @@ from .models.schemas import (
     TripVersionsResponse,
 )
 from .services.trip_service import TripService, TripServiceError
-from .storage import SQLiteTripRepository, TripNotFoundError, TripVersionConflictError
+from .storage import (
+    InvalidTripCursorError,
+    SQLiteTripRepository,
+    TripNotFoundError,
+    TripVersionConflictError,
+)
 
 app = FastAPI(title="MiliTravel API", version="0.1.0", description="Travel planning backend API")
 _map_cache = MemoryCache(default_ttl_seconds=300)
@@ -133,6 +138,18 @@ async def trip_version_conflict_handler(
         request_id=_request_id(request),
     )
     return JSONResponse(status_code=409, content=body.model_dump(mode="json"))
+
+
+@app.exception_handler(InvalidTripCursorError)
+async def invalid_trip_cursor_handler(
+    request: Request, exc: InvalidTripCursorError
+) -> JSONResponse:
+    body = ErrorResponse(
+        code=ErrorCode.INVALID_TRIP_REQUEST,
+        message="分页 cursor 无效",
+        request_id=_request_id(request),
+    )
+    return JSONResponse(status_code=422, content=body.model_dump(mode="json"))
 
 
 @app.exception_handler(MomaError)
