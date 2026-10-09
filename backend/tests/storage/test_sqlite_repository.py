@@ -133,3 +133,21 @@ def test_delete_removes_current_and_all_versions(tmp_path: Path) -> None:
         repository.get_version(first.trip_id, 1)
     with pytest.raises(TripNotFoundError):
         repository.get_version(first.trip_id, 2)
+
+
+def test_memory_database_keeps_all_versions_for_repository_lifetime() -> None:
+    repository = SQLiteTripRepository(":memory:")
+    first = repository.create(itinerary(summary="内存初始版本"))
+    updated = repository.save_version(
+        itinerary(trip_id=first.trip_id, version=1, summary="内存第二版本"), expected_version=1
+    )
+
+    assert repository.get_current(first.trip_id).summary == "内存第二版本"
+    assert repository.get_version(first.trip_id, 1).summary == "内存初始版本"
+    assert repository.get_version(first.trip_id, 2) == updated
+    assert repository.list_versions(first.trip_id).current_version == 2
+    assert repository.list(limit=10).items[0].trip_id == first.trip_id
+
+    repository.delete(first.trip_id)
+    with pytest.raises(TripNotFoundError):
+        repository.get_current(first.trip_id)
