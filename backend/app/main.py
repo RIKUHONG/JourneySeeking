@@ -16,11 +16,14 @@ from .models.schemas import (
     ErrorCode,
     ErrorResponse,
     Itinerary,
+    TripEditRequest,
+    TripEditResponse,
     TripListResponse,
     TripRequest,
     TripSaveRequest,
     TripVersionsResponse,
 )
+from .services.trip_edit import MomaDayEditor, TripEditError, TripEditService
 from .services.trip_service import TripService, TripServiceError
 from .storage import (
     InvalidTripCursorError,
@@ -85,6 +88,22 @@ def get_trip_repository() -> SQLiteTripRepository:
     return _trip_repository
 
 
+def get_trip_edit_service(
+    repository: SQLiteTripRepository = Depends(get_trip_repository),  # noqa: B008
+) -> TripEditService:
+    from .config.settings import settings
+    from .integrations.amap_client import AmapClient
+    from .integrations.moma_client import MomaClient
+    from .services.poi_candidates import collect_candidate_pool
+
+    map_client = AmapClient(config=settings)
+    return TripEditService(
+        repository,
+        MomaDayEditor(MomaClient()),
+        candidate_provider=lambda destination: collect_candidate_pool(map_client, destination),
+    )
+
+
 @app.exception_handler(RequestValidationError)
 async def request_validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     error_code = ErrorCode.INVALID_TRIP_REQUEST
@@ -116,6 +135,17 @@ async def trip_service_error_handler(request: Request, exc: TripServiceError) ->
     }.get(exc.code, 500)
     body = ErrorResponse(code=exc.code, message=exc.message, request_id=_request_id(request))
     return JSONResponse(status_code=status, content=body.model_dump(mode="json"))
+
+
+@app.exception_handler(TripEditError)
+async def trip_edit_error_handler(request: Request, exc: TripEditError) -> JSONResponse:
+    status_code = {
+        "INVALID_TRIP_REQUEST": 422,
+        "MOMA_TIMEOUT": 504,
+        "ITINERARY_VALIDATION_ERROR": 422,
+    }.get(exc.code, 500)
+    body = ErrorResponse(code=exc.code, message=exc.message, request_id=_request_id(request))
+    return JSONResponse(status_code=status_code, content=body.model_dump(mode="json"))
 
 
 @app.exception_handler(TripNotFoundError)
@@ -214,6 +244,15 @@ def get_trip(
     repository: SQLiteTripRepository = Depends(get_trip_repository),  # noqa: B008
 ) -> Itinerary:
     return repository.get_current(trip_id)
+
+
+@app.post("/api/trip/{trip_id}/edit", response_model=TripEditResponse)
+def edit_trip(
+    trip_id: str,
+    request: TripEditRequest,
+    service: TripEditService = Depends(get_trip_edit_service),  # noqa: B008
+) -> TripEditResponse:
+    return service.edit(trip_id, request)
 
 
 @app.get("/api/trip/{trip_id}/versions", response_model=TripVersionsResponse)
