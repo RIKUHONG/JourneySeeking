@@ -16,17 +16,23 @@ from .models.schemas import (
     ErrorCode,
     ErrorResponse,
     Itinerary,
+    SessionCreateRequest,
+    SessionEditRequest,
+    SessionEditResponse,
     TripEditRequest,
     TripEditResponse,
     TripListResponse,
     TripRequest,
     TripSaveRequest,
+    TripSession,
     TripVersionsResponse,
 )
+from .services.session_context import SessionError, SessionService
 from .services.trip_edit import MomaDayEditor, TripEditError, TripEditService
 from .services.trip_service import TripService, TripServiceError
 from .storage import (
     InvalidTripCursorError,
+    SQLiteSessionRepository,
     SQLiteTripRepository,
     TripNotFoundError,
     TripVersionConflictError,
@@ -35,6 +41,7 @@ from .storage import (
 app = FastAPI(title="MiliTravel API", version="0.1.0", description="Travel planning backend API")
 _map_cache = MemoryCache(default_ttl_seconds=300)
 _trip_repository: SQLiteTripRepository | None = None
+_session_repository: SQLiteSessionRepository | None = None
 
 
 def _request_id(request: Request) -> str:
@@ -104,6 +111,28 @@ def get_trip_edit_service(
     )
 
 
+def get_session_repository() -> SQLiteSessionRepository:
+    global _session_repository
+    if _session_repository is None:
+        from .config.settings import settings
+
+        _session_repository = SQLiteSessionRepository(
+            settings.trip_database_path,
+            ttl_seconds=settings.session_ttl_seconds,
+            recent_turn_limit=settings.session_recent_turn_limit,
+            summary_max_length=settings.session_summary_max_length,
+        )
+    return _session_repository
+
+
+def get_session_service(
+    sessions: SQLiteSessionRepository = Depends(get_session_repository),  # noqa: B008
+    trips: SQLiteTripRepository = Depends(get_trip_repository),  # noqa: B008
+    editor: TripEditService = Depends(get_trip_edit_service),  # noqa: B008
+) -> SessionService:
+    return SessionService(sessions, trips, editor)
+
+
 @app.exception_handler(RequestValidationError)
 async def request_validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     error_code = ErrorCode.INVALID_TRIP_REQUEST
@@ -143,6 +172,18 @@ async def trip_edit_error_handler(request: Request, exc: TripEditError) -> JSONR
         "INVALID_TRIP_REQUEST": 422,
         "MOMA_TIMEOUT": 504,
         "ITINERARY_VALIDATION_ERROR": 422,
+    }.get(exc.code, 500)
+    body = ErrorResponse(code=exc.code, message=exc.message, request_id=_request_id(request))
+    return JSONResponse(status_code=status_code, content=body.model_dump(mode="json"))
+
+
+@app.exception_handler(SessionError)
+async def session_error_handler(request: Request, exc: SessionError) -> JSONResponse:
+    status_code = {
+        "SESSION_NOT_FOUND": 404,
+        "SESSION_EXPIRED": 410,
+        "SESSION_TRIP_MISMATCH": 409,
+        "SESSION_VERSION_CONFLICT": 409,
     }.get(exc.code, 500)
     body = ErrorResponse(code=exc.code, message=exc.message, request_id=_request_id(request))
     return JSONResponse(status_code=status_code, content=body.model_dump(mode="json"))
@@ -253,6 +294,44 @@ def edit_trip(
     service: TripEditService = Depends(get_trip_edit_service),  # noqa: B008
 ) -> TripEditResponse:
     return service.edit(trip_id, request)
+
+
+@app.post("/api/trip/{trip_id}/sessions", response_model=TripSession)
+def create_trip_session(
+    trip_id: str,
+    request: SessionCreateRequest,
+    service: SessionService = Depends(get_session_service),  # noqa: B008
+) -> TripSession:
+    return service.create(trip_id, request)
+
+
+@app.get("/api/trip/{trip_id}/sessions/{session_id}", response_model=TripSession)
+def get_trip_session(
+    trip_id: str,
+    session_id: str,
+    service: SessionService = Depends(get_session_service),  # noqa: B008
+) -> TripSession:
+    return service.get(trip_id, session_id)
+
+
+@app.post("/api/trip/{trip_id}/sessions/{session_id}/edit", response_model=SessionEditResponse)
+def edit_trip_session(
+    trip_id: str,
+    session_id: str,
+    request: SessionEditRequest,
+    service: SessionService = Depends(get_session_service),  # noqa: B008
+) -> SessionEditResponse:
+    return service.edit(trip_id, session_id, request)
+
+
+@app.delete("/api/trip/{trip_id}/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_trip_session(
+    trip_id: str,
+    session_id: str,
+    service: SessionService = Depends(get_session_service),  # noqa: B008
+) -> Response:
+    service.delete(trip_id, session_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.get("/api/trip/{trip_id}/versions", response_model=TripVersionsResponse)

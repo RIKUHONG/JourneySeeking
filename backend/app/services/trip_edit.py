@@ -85,6 +85,7 @@ class DayEditor(Protocol):
         instruction: str,
         *,
         candidates: Sequence[Any] = (),
+        session_context: Sequence[Mapping[str, Any]] = (),
     ) -> Mapping[str, Any] | str: ...
 
 
@@ -101,6 +102,7 @@ class MomaDayEditor:
         instruction: str,
         *,
         candidates: Sequence[Any] = (),
+        session_context: Sequence[Mapping[str, Any]] = (),
     ) -> str:
         candidate_payload = [
             {
@@ -120,6 +122,7 @@ class MomaDayEditor:
             "target_day": day.model_dump(mode="json"),
             "instruction": instruction,
             "allowed_pois": candidate_payload,
+            "recent_session_context": list(session_context),
         }
         messages = [
             {
@@ -161,7 +164,13 @@ class TripEditService:
         self.candidate_provider = candidate_provider
         self.critic = critic or ItineraryCritic()
 
-    def edit(self, trip_id: str, request: TripEditRequest) -> TripEditResponse:
+    def edit(
+        self,
+        trip_id: str,
+        request: TripEditRequest,
+        *,
+        session_context: Sequence[Mapping[str, Any]] = (),
+    ) -> TripEditResponse:
         current = self.repository.get_current(trip_id)
         if current.version != request.expected_version:
             raise TripVersionConflictError(trip_id)
@@ -173,7 +182,11 @@ class TripEditService:
 
         candidates = self._candidates(current.destination)
         raw_draft = self.editor.edit(
-            current, current.days[target_index], request.instruction, candidates=candidates
+            current,
+            current.days[target_index],
+            request.instruction,
+            candidates=candidates,
+            session_context=session_context,
         )
         draft = self._parse_draft(raw_draft)
         if draft.date != request.date:
@@ -240,9 +253,7 @@ class TripEditService:
     @staticmethod
     def _validate_pois(before: DayPlan, after: DayPlan, trusted_ids: set[str]) -> None:
         existing_unverified = {
-            (item.name, item.poi_id)
-            for item in before.activities
-            if item.poi_status != "verified"
+            (item.name, item.poi_id) for item in before.activities if item.poi_status != "verified"
         }
         for activity in after.activities:
             if activity.poi_id is not None and activity.poi_id not in trusted_ids:
@@ -322,4 +333,6 @@ class TripEditService:
 
 def _is_timeout(exc: Exception) -> bool:
     text = f"{type(exc).__name__} {exc}".lower()
-    return isinstance(exc, TimeoutError) or "timeout" in text or "timed out" in text or "超时" in text
+    return (
+        isinstance(exc, TimeoutError) or "timeout" in text or "timed out" in text or "超时" in text
+    )

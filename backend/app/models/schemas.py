@@ -21,6 +21,10 @@ class ErrorCode(str, Enum):
     TRIP_VERSION_CONFLICT = "TRIP_VERSION_CONFLICT"
     INVALID_TRIP_VERSION = "INVALID_TRIP_VERSION"
     INTERNAL_SERVER_ERROR = "INTERNAL_SERVER_ERROR"
+    SESSION_NOT_FOUND = "SESSION_NOT_FOUND"
+    SESSION_EXPIRED = "SESSION_EXPIRED"
+    SESSION_TRIP_MISMATCH = "SESSION_TRIP_MISMATCH"
+    SESSION_VERSION_CONFLICT = "SESSION_VERSION_CONFLICT"
 
 
 class TripRequest(BaseModel):
@@ -203,6 +207,82 @@ class TripEditResponse(BaseModel):
     def validate_response_identity(self) -> "TripEditResponse":
         if self.itinerary.trip_id != self.trip_id or self.itinerary.version != self.version:
             raise ValueError("编辑响应的行程身份与版本不一致")
+        return self
+
+
+class SessionTurn(BaseModel):
+    """A bounded, sanitized record of one session edit attempt."""
+
+    turn_id: NonEmptyText
+    instruction: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)
+    ]
+    target_date: date
+    base_version: int = Field(strict=True, ge=1)
+    result_version: int | None = Field(default=None, strict=True, ge=1)
+    status: Literal["succeeded", "failed", "conflict"]
+    change_summary: list[NonEmptyText] = Field(default_factory=list, max_length=20)
+    created_at: NonEmptyText
+
+
+class SessionConstraints(BaseModel):
+    """Optional immutable snapshot of the original planning constraints."""
+
+    travelers: int | None = Field(default=None, strict=True, ge=1)
+    budget: Money | None = None
+    preferences: list[NonEmptyText] = Field(default_factory=list, max_length=10)
+    pace: Literal["relaxed", "normal", "intensive"] | None = None
+    dietary_preferences: list[NonEmptyText] = Field(default_factory=list, max_length=10)
+    hotel_level: Literal["budget", "three_star", "four_star", "five_star", "不指定"] | None = None
+    special_notes: (
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+        | None
+    ) = None
+
+
+class TripSession(BaseModel):
+    session_id: NonEmptyText
+    trip_id: NonEmptyText
+    current_version: int = Field(strict=True, ge=1)
+    initial_version: int = Field(strict=True, ge=1)
+    constraints: SessionConstraints = Field(default_factory=SessionConstraints)
+    summary: Annotated[str, StringConstraints(max_length=2000)] = ""
+    recent_turns: list[SessionTurn] = Field(default_factory=list, max_length=5)
+    created_at: NonEmptyText
+    updated_at: NonEmptyText
+    expires_at: NonEmptyText
+
+
+class SessionCreateRequest(BaseModel):
+    version: int = Field(strict=True, ge=1)
+    constraints: SessionConstraints = Field(default_factory=SessionConstraints)
+
+
+class SessionEditRequest(BaseModel):
+    date: date
+    instruction: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)
+    ]
+
+
+class SessionEditResponse(BaseModel):
+    session_id: NonEmptyText
+    trip_id: NonEmptyText
+    version: int = Field(strict=True, ge=1)
+    itinerary: Itinerary
+    change_summary: list[NonEmptyText] = Field(default_factory=list)
+    session: TripSession
+
+    @model_validator(mode="after")
+    def validate_response_identity(self) -> "SessionEditResponse":
+        if (
+            self.itinerary.trip_id != self.trip_id
+            or self.itinerary.version != self.version
+            or self.session.session_id != self.session_id
+            or self.session.trip_id != self.trip_id
+            or self.session.current_version != self.version
+        ):
+            raise ValueError("会话编辑响应的行程身份与版本不一致")
         return self
 
 

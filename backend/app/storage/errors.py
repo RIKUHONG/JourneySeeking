@@ -15,3 +15,11 @@ class TripVersionConflictError(TripStorageError):
 
 class InvalidTripCursorError(TripStorageError):
     """The opaque list cursor cannot be decoded or has the wrong shape."""
+
+
+class SessionNotFoundError(TripStorageError):
+    """The requested session does not exist."""
+
+
+class SessionVersionConflictError(TripStorageError):
+    """The session was advanced by another request."""

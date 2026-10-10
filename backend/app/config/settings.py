@@ -18,6 +18,9 @@ if load_dotenv is not None:
 @dataclass(frozen=True)
 class Settings:
     trip_database_path: str = os.getenv("TRIP_DATABASE_PATH", "backend/data/trips.sqlite3")
+    session_ttl_seconds: int = int(os.getenv("SESSION_TTL_SECONDS", str(7 * 24 * 60 * 60)))
+    session_recent_turn_limit: int = int(os.getenv("SESSION_RECENT_TURN_LIMIT", "5"))
+    session_summary_max_length: int = int(os.getenv("SESSION_SUMMARY_MAX_LENGTH", "2000"))
     moma_api_url: str = os.getenv(
         "MOMA_API_URL", "https://zhenze-huhehaote.cmecloud.cn/v1/chat/completions"
     )

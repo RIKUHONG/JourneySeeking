@@ -22,3 +22,5 @@ POST /api/trip/generate
 - 前端以 `docs/api-contract.md` 与 OpenAPI 为准；天气与 POI 的真实性状态由后端提供。
 
 目标依赖方向为 `前端 → HTTP → services → integrations / storage / cache`。成员 A 的 P2-01 先定义身份与版本契约，其余任务按 [P2 Issue 清单](p2-issues.md) 的 A/B/C 边界接入。Redis 与天气自动调度是条件任务，不是当前运行链路。
+
+P2-06 的 `SessionService` 和 `SQLiteSessionRepository` 使用与行程版本相同的 SQLite 文件，但使用独立的 `trip_sessions` 表。会话只保存 `trip_id`、`current_version`、TTL、摘要和有界的近期指令；完整行程始终从 `TripRepository` 读取。会话编辑调用 P2-05 的 `TripEditService`，不复制局部差异、费用、POI 或路线校验。

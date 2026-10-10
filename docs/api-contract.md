@@ -229,6 +229,43 @@ POST /api/trip/{trip_id}/edit
 
 编辑服务只允许修改指定 `date`，保持目的地、请求日期范围、其他日期和已确认硬约束不变；成功写入新版本并返回 `trip_id`、新 `version`、完整行程和 `change_summary`。编辑算法、Prompt 和局部差异校验由 P2-05 负责。
 
+### 多轮会话接口（P2-06）
+
+会话只绑定一个已经保存的行程，服务端保存会话 ID、当前行程版本引用、最近指令窗口和摘要；不会复制完整 `Itinerary`，也不会改变无状态的 `/api/chat`。
+
+```text
+POST   /api/trip/{trip_id}/sessions
+GET    /api/trip/{trip_id}/sessions/{session_id}
+POST   /api/trip/{trip_id}/sessions/{session_id}/edit
+DELETE /api/trip/{trip_id}/sessions/{session_id}
+```
+
+创建请求：
+
+```json
+{
+  "version": 1,
+  "constraints": {
+    "travelers": 2,
+    "budget": 3000,
+    "pace": "relaxed"
+  }
+}
+```
+
+会话创建时指定的版本必须存在。`constraints` 是可选的不可变原始请求快照，用于后续轮次保持预算、人数、节奏等约束；未提供的字段不会从行程内容中臆测。编辑请求只接收目标日期和自然语言指令：
+
+```json
+{
+  "date": "2026-10-02",
+  "instruction": "减少当天活动，并保留傍晚散步"
+}
+```
+
+会话编辑从服务端读取当前行程版本，复用 P2-05 单日编辑服务；成功后先保存新行程版本，再更新会话的 `current_version`。响应包含 `session_id`、新版本、完整行程、修改摘要和会话状态。
+
+首版默认会话 TTL 为 7 天，成功编辑会刷新 TTL；近期指令最多保留 5 轮，摘要最多 2000 字符。过期会话返回 `SESSION_EXPIRED`，跨行程访问返回 `SESSION_TRIP_MISMATCH`，并发推进失败返回 `SESSION_VERSION_CONFLICT`。删除会话不影响行程及其历史版本，删除后读取和编辑返回 `SESSION_NOT_FOUND`。
+
 ### 导出接口基础契约（P2-09 消费）
 
 ```text
