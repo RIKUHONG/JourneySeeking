@@ -98,6 +98,19 @@ class TripService:
         try:
             itinerary = Itinerary.model_validate(payload)
         except ValidationError as exc:
+            # Keep provider output out of logs while retaining the field-level
+            # reason needed to diagnose rejected structured responses.
+            logger.warning(
+                "itinerary validation failed: %s",
+                [
+                    {
+                        "loc": list(error.get("loc", ())),
+                        "type": error.get("type"),
+                        "msg": error.get("msg"),
+                    }
+                    for error in exc.errors()
+                ],
+            )
             raise ItineraryValidationError() from exc
 
         if candidate_pool is not None:
