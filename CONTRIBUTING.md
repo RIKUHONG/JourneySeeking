@@ -64,7 +64,7 @@ P2 中的共享模型、行程 ID、版本和错误码先在契约 PR 确认。�
 
 - 不提交 `.env`、API Key、Token、真实用户数据和本地数据库。
 - 只提交 `.env.example`，其中只能放变量名和示例值。
-- 不把本地参考项目 `repo_inspect_20260923/` 拷贝进仓库。
+- 不把根目录下的本地参考项目 `helloagents-trip-planner/` 拷贝或提交进仓库。
 - 路由层不直接调用 MoMA、高德或天气服务，统一通过 service/integration 层调用。
 - 外部服务必须设置超时，并提供可测试的 mock。
 - API 响应结构和错误码以 `docs/api-contract.md` 为准。

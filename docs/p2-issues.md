@@ -1,6 +1,6 @@
 # P2 差距清单与 Issue 分工
 
-核对基线：2026-09-29 的本地 `main`（`6f76009`，已合并生成链路修复）；参考项目为本地 `repo_inspect_20260923/`。参考项目只用于识别能力差距，接口、模型和实现以本仓库为准。`python -m pytest -q` 在基线上为 142 passed。真实杭州生成链路样例见 `docs/fixtures/trip-generate-hangzhou-20260929.json`，它不是持续的线上联调测试。
+核对基线：2026-09-29 的本地 `main`（`6f76009`，已合并生成链路修复）；参考项目为根目录下本地 `helloagents-trip-planner/`。参考项目只用于识别能力差距，接口、模型和实现以本仓库为准；该目录不提交到本仓库。`python -m pytest -q` 在基线上为 142 passed。真实杭州生成链路样例见 `docs/fixtures/trip-generate-hangzhou-20260929.json`，它不是持续的线上联调测试。
 
 ## 已有能力与差距
 
@@ -19,7 +19,7 @@
 
 ## 分工与推进
 
-每个编号是一个独立 Issue/PR 的交付边界。A 负责 API/模型、持久化、前端与导出；B 负责 RAG、编辑和编排；C 负责地图候选、会话与集成。分支名均为计划名，**这些 P2 功能分支尚未创建**；各负责人按下表依赖顺序从合并后的最新 `main` 创建对应分支，不把多个 Issue 混入同一 PR。跨工作面字段先由 P2-01 定义，至少由受影响工作面的另一位成员评审。
+每个编号是一个独立 Issue/PR 的交付边界。A 负责 API/模型与持久化；B 负责 RAG、编辑、编排和集成验收；C 负责地图候选、会话、前端和导出。各负责人按下表依赖顺序从合并后的最新 `main` 创建对应分支，不把多个 Issue 混入同一 PR。跨工作面字段先由 P2-01 定义，至少由受影响工作面的另一位成员评审。
 
 | Issue | 负责人 | 独立分支名 | 依赖与交接 |
 | --- | --- | --- | --- |
@@ -30,9 +30,9 @@
 | P2-05 单日局部编辑 | B | `feature/p2-trip-edit` | P2-01、P2-04；存储未就绪可先用 mock，A/C 评审 |
 | P2-06 多轮上下文 | C | `feature/p2-session-context` | P2-04、P2-05；A/B 评审 |
 | P2-07 编排与校验 | B | `feature/p2-agent-orchestration` | P2-01、P2-02、P2-03；A/C 评审 |
-| P2-08 前端工作流 | A | `feature/p2-frontend-workflow` | P2-01 后用 mock；最终接 P2-04/05/09，B/C 评审 |
-| P2-09 Markdown/PDF 导出 | A | `feature/p2-trip-export` | P2-04；C 评审 |
-| P2-10 端到端与观测 | C | `feature/p2-e2e-observability` | 各功能 PR 自带测试；最终集成依赖 P2-01～09，A/B 评审 |
+| P2-08 前端工作流 | C | `feature/p2-frontend-workflow` | P2-01 后用 mock；最终接 P2-04/05/09，A/B 评审 |
+| P2-09 Markdown/PDF 导出 | C | `feature/p2-trip-export` | P2-04；A/B 评审 |
+| P2-10 端到端与观测 | B | `feature/p2-e2e-observability` | 各功能 PR 自带测试；最终集成依赖 P2-01～09，A/C 评审 |
 
 ### P2-01 契约与行程身份
 
@@ -99,7 +99,7 @@
 
 ### P2-08 前端生成与管理
 
-**负责人：A；分支：`feature/p2-frontend-workflow`。**
+**负责人：C；分支：`feature/p2-frontend-workflow`。**
 
 - 范围：建立 Vue 3/TypeScript 前端；覆盖请求表单、生成中/失败状态、每日活动/地图/天气、局部编辑、保存、历史和导出入口。先用 P2-01 契约 mock，后接真实 API。
 - 具体内容：建立 API client 与类型、生成和结果视图、地图/天气状态、单日编辑、历史列表/详情、保存/删除和导出操作；对 404、版本冲突、部分补全及重试提供明确交互。
@@ -108,7 +108,7 @@
 
 ### P2-09 Markdown/PDF 导出
 
-**负责人：A；分支：`feature/p2-trip-export`。**
+**负责人：C；分支：`feature/p2-trip-export`。**
 
 - 范围：从 P2-04 中保存的行程版本生成 Markdown 和 PDF；展示日期、活动、来源及未知天气，处理中文字体和下载文件名。
 - 具体内容：实现纯渲染 service 与下载路由；输入固定为存储的行程版本，输出包含可信来源提示及预算信息；封装中文字体，避免本机路径进入响应。
@@ -117,7 +117,7 @@
 
 ### P2-10 集成验收与观测
 
-**负责人：C；分支：`feature/p2-e2e-observability`。**
+**负责人：B；分支：`feature/p2-e2e-observability`。**
 
 - 范围：维护生成/编辑/保存/导出的离线端到端场景、真实服务手工检查清单、请求 ID 与步骤耗时/失败类别；建立质量、延迟与 token/成本基线。
 - 具体内容：串联 A/B 的功能测试和前端流程，维护无密钥 CI、故障注入与验收记录；采集阶段耗时、POI/路线核实率和外部服务失败类别，文档化真实 Key 的手工联调步骤。
