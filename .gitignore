@@ -15,4 +15,5 @@ repo_inspect_20260923/
 
 .venv/
 backend/.venv/
+backend/data/*.sqlite3
 backend/manual_e2e.py

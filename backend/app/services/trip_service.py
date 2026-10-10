@@ -3,19 +3,21 @@
 import json
 import logging
 import math
+from collections.abc import Sequence
 from datetime import timedelta
-from typing import ClassVar, Protocol
+from typing import Any, ClassVar, Protocol
 
 from pydantic import ValidationError
 
 from backend.app.models.schemas import Itinerary, TripRequest
 from backend.app.services.map_enrichment import MapEnrichmentService
 from backend.app.services.weather_enrichment import WeatherEnrichmentService
+
 logger = logging.getLogger(__name__)
 
 
 class ItineraryGenerator(Protocol):
-    def generate(self, request: TripRequest) -> str: ...
+    def generate(self, request: TripRequest, *, knowledge_chunks: Sequence[Any] = ()) -> str: ...
 
 
 class TripServiceError(Exception):
@@ -52,9 +54,20 @@ class TripService:
         self.map_enricher = map_enricher
         self.weather_enricher = weather_enricher
 
-    def generate(self, request: TripRequest) -> Itinerary:
+    def generate(self, request: TripRequest, *, knowledge_chunks: Sequence[Any] = ()) -> Itinerary:
+        itinerary = self.generate_base(request, knowledge_chunks=knowledge_chunks)
+        itinerary = self.enrich_map(itinerary)
+        return self.enrich_weather(itinerary)
+
+    def generate_base(
+        self, request: TripRequest, *, knowledge_chunks: Sequence[Any] = ()
+    ) -> Itinerary:
+        """Generate and validate the base itinerary without optional enrichments."""
         try:
-            content = self.generator.generate(request)
+            if knowledge_chunks:
+                content = self.generator.generate(request, knowledge_chunks=knowledge_chunks)
+            else:
+                content = self.generator.generate(request)
         except TimeoutError as exc:
             raise MomaTimeoutError() from exc
         except Exception as exc:
@@ -126,15 +139,23 @@ class TripService:
         ):
             raise ItineraryValidationError()
 
-        if self.map_enricher is not None:
-            itinerary = self.map_enricher.enrich(
-                itinerary,
-                candidate_pool=candidate_pool,
-                require_poi_ids=candidate_pool is not None,
-            )
-        if self.weather_enricher is not None:
-            itinerary = self.weather_enricher.enrich(itinerary)
         return itinerary
+
+    def enrich_map(self, itinerary: Itinerary) -> Itinerary:
+        if self.map_enricher is None:
+            return itinerary
+        candidate_pool = getattr(self.generator, "last_candidate_pool", None)
+        return self.map_enricher.enrich(
+            itinerary,
+            candidate_pool=candidate_pool,
+            require_poi_ids=candidate_pool is not None,
+        )
+
+    def enrich_weather(self, itinerary: Itinerary) -> Itinerary:
+        if self.weather_enricher is None:
+            return itinerary
+        return self.weather_enricher.enrich(itinerary)
+
     @staticmethod
     def _normalize_model_payload(
         payload: dict[str, object], request: TripRequest, candidate_pool: object | None
@@ -182,6 +203,4 @@ class TripService:
             day["activities"] = unique_activities
 
         if removed_count:
-            logger.warning(
-                "removed %d generated activities with duplicate POI IDs", removed_count
-            )
+            logger.warning("removed %d generated activities with duplicate POI IDs", removed_count)

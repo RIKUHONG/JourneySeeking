@@ -46,8 +46,9 @@ class ItineraryGenerator:
         self.candidate_provider = candidate_provider
         self.last_candidate_pool = None
         self.last_candidate_diagnostics = None
+        self.last_knowledge_chunks = ()
 
-    def generate(self, request: Any) -> str:
+    def generate(self, request: Any, *, knowledge_chunks: Sequence[Any] = ()) -> str:
         """Return normalized JSON text for a trip request."""
         candidate_pool = (
             self.candidate_provider(request) if self.candidate_provider is not None else None
@@ -62,7 +63,8 @@ class ItineraryGenerator:
         ):
             candidate_pool = None
         self.last_candidate_pool = candidate_pool
-        messages = self.prompt_builder.build_messages(request, candidate_pool)
+        self.last_knowledge_chunks = tuple(knowledge_chunks)
+        messages = self.prompt_builder.build_messages(request, candidate_pool, knowledge_chunks)
         last_failure = "MoMA 未返回可用的结构化行程。"
         last_raw_content = ""
 
