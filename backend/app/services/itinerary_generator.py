@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from .prompt_builder import PromptBuilder
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -90,6 +93,7 @@ class ItineraryGenerator:
                 return normalized_json
             except (TypeError, ValueError, json.JSONDecodeError) as exc:
                 last_failure = self._failure_reason(exc)
+                logger.warning("MoMA itinerary response rejected before API validation: %s", last_failure)
 
         raise ItineraryGenerationError("MOMA_INVALID_RESPONSE", "MoMA 返回的行程无法通过结构校验。")
 

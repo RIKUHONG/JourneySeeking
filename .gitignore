@@ -17,3 +17,11 @@ repo_inspect_20260923/
 backend/.venv/
 backend/data/*.sqlite3
 backend/manual_e2e.py
+
+# Frontend local dependencies and build output
+frontend/node_modules/
+frontend/dist/
+.npm-cache/
+frontend/.env.*
+!frontend/.env.example
+frontend/src/**/*.js
