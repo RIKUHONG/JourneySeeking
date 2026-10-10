@@ -17,6 +17,7 @@ if load_dotenv is not None:
 
 @dataclass(frozen=True)
 class Settings:
+    trip_database_path: str = os.getenv("TRIP_DATABASE_PATH", "backend/data/trips.sqlite3")
     moma_api_url: str = os.getenv(
         "MOMA_API_URL", "https://zhenze-huhehaote.cmecloud.cn/v1/chat/completions"
     )
