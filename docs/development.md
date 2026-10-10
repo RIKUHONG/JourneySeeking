@@ -30,7 +30,7 @@ P2 的 A/B/C 分工、指定分支、依赖和验收见 [P2 Issue 清单](p2-iss
 
 P2-02 的城市解析和候选池位于 `backend/app/services/city_resolution.py` 与 `poi_candidates.py`。候选池默认要求景点、餐饮、住宿各至少一个可信候选；候选缺少 ID/坐标、显式城市不匹配、分类不足或地图失败时记录诊断并让生成链路回退到基础行程。生成器保留 `last_candidate_diagnostics` 供后续编排读取，但只把达到门槛的池放入模型约束和 POI ID 校验。新增候选规则应先补充 `backend/tests/api/test_city_candidates.py`，不能在测试中使用真实 Key。
 
-新后端模块添加对应离线测试。前端从 P2-01 契约 mock 开发，最终按 OpenAPI 接口集成。不得提交密钥、真实用户数据、本地数据库或 `repo_inspect_20260923/`。
+新后端模块添加对应离线测试。前端从 P2-01 契约 mock 开发，最终按 OpenAPI 接口集成。不得提交密钥、真实用户数据、本地数据库或根目录下的 `helloagents-trip-planner/` 参考项目。
 
 P2-04 行程存储使用 SQLite，默认路径为 `backend/data/trips.sqlite3`，可通过 `TRIP_DATABASE_PATH` 覆盖。数据库文件不提交到 Git；测试使用临时数据库。保存已有行程必须携带 `expected_version`，版本冲突返回 `TRIP_VERSION_CONFLICT`，存储层不得覆盖较新的版本。历史列表使用服务端编码的 `(updated_at, trip_id)` keyset cursor；非法 cursor 返回 422，不得因解析异常变成 500。
 

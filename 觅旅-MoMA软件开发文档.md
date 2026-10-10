@@ -5,14 +5,14 @@
 文档版本：V1.0  
 编制日期：2026-09-23  
 项目类型：移动云杯参赛项目  
-参考项目：`tutu-zzz/zhilv-yuntu`  
+参考项目：根目录下本地 `helloagents-trip-planner/`
 目标平台：移动云 MoMA
 
 ## 当前阶段说明（2026-09-29）
 
 本文档描述 V1.0 长期目标；功能清单、七周计划和比赛演示脚本不代表当前代码已实现。截至 2026-09-29 的本地 `main`（`6f76009`），仓库已有 P0 结构化行程生成，以及 P1 的候选 POI ID 校验、高德地点/路线补全、进程内地图缓存、逐日天气与轻量建议；地图和天气均已接入 `POST /api/trip/generate`。生成链路修复已合并，杭州真实生成样例见 `docs/fixtures/trip-generate-hangzhou-20260929.json`。独立的 `/api/weather/forecast`、前端、RAG、保存/历史、局部编辑、多轮会话、Agent 轨迹和导出仍未实现。`/api/chat` 仅转发原始 MoMA 消息。
 
-下一阶段按 `docs/p2-issues.md` 的差距对比和十个核心 Issue 推进：A 负责契约、存储、前端和导出；B 负责 RAG、编辑和编排；C 负责城市候选、多轮会话和集成验收。Redis adapter 由 C 负责、天气自动调度由 B 负责，均为独立条件任务。现行 HTTP 字段与错误码以 `docs/api-contract.md` 为准；本地运行与实际环境变量以 `README.md`、`backend/.env.example` 为准。下面第 20 节的七周安排保留为目标顺序，实际执行以 `docs/roadmap.md` 为准。
+下一阶段按 `docs/p2-issues.md` 的差距对比和十个核心 Issue 推进：A 负责契约和存储；B 负责 RAG、编辑、编排和集成验收；C 负责城市候选、多轮会话、前端和导出。Redis adapter 由 C 负责、天气自动调度由 B 负责，均为独立条件任务。现行 HTTP 字段与错误码以 `docs/api-contract.md` 为准；本地运行与实际环境变量以 `README.md`、`backend/.env.example` 为准。下面第 20 节的七周安排保留为目标顺序，实际执行以 `docs/roadmap.md` 为准。
 
 ---
 
@@ -53,7 +53,7 @@
 
 ### 1.3 参考资料
 
-- `tutu-zzz/zhilv-yuntu` 项目源代码和 README；
+- 根目录下本地 `helloagents-trip-planner/` 项目源代码和 README；
 - 移动云 MoMA 平台 API、SDK 和部署文档；
 - 高德地图 Web 服务 API 文档；
 - FastAPI、Pydantic、SQLAlchemy、Vue 3、Vite 官方文档；
