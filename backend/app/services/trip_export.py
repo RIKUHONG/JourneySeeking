@@ -21,6 +21,7 @@ try:
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
     from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
     from reportlab.pdfbase.ttfonts import TTFont
     from reportlab.platypus import (
         Paragraph,
@@ -229,7 +230,11 @@ def _register_font(preferred_name: str) -> str:
             return preferred_name
         except (OSError, ValueError, IndexError):
             continue
-    return "Helvetica"
+    try:
+        pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+        return "STSong-Light"
+    except (OSError, ValueError):
+        return "Helvetica"
 
 
 def content_disposition(filename: str) -> str:
