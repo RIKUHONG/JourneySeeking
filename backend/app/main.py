@@ -70,7 +70,7 @@ def get_trip_service() -> TripService:
     from .integrations.weather_client import WeatherClient
     from .services.itinerary_generator import ItineraryGenerator
     from .services.map_enrichment import MapEnrichmentService
-    from .services.poi_candidates import collect_candidate_pool
+    from .services.poi_candidates import PoiCategory, collect_candidate_pool
     from .services.weather_enrichment import WeatherEnrichmentService
 
     map_client = AmapClient(config=settings)
@@ -78,7 +78,13 @@ def get_trip_service() -> TripService:
         ItineraryGenerator(
             client=MomaClient(),
             candidate_provider=lambda request: collect_candidate_pool(
-                map_client, request.destination
+                map_client,
+                request.destination,
+                minimum_counts={
+                    PoiCategory.SPOT: max(4, ((request.end_date - request.start_date).days + 1) * 2),
+                    PoiCategory.MEAL: 1,
+                    PoiCategory.HOTEL: 1,
+                }
             ),
         ),
         map_enricher=MapEnrichmentService(map_client, cache=_map_cache),

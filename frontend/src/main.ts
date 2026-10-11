@@ -5,6 +5,7 @@ import 'ant-design-vue/dist/reset.css'
 import App from './App.vue'
 import Home from './views/Home.vue'
 import Result from './views/Result.vue'
+import History from './views/History.vue'
 
-const router = createRouter({ history: createWebHistory(), routes: [{ path: '/', component: Home }, { path: '/result', component: Result }] })
+const router = createRouter({ history: createWebHistory(), routes: [{ path: '/', component: Home }, { path: '/result', component: Result }, { path: '/history', component: History }] })
 createApp(App).use(router).use(Antd).mount('#app')

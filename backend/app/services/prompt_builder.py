@@ -98,6 +98,11 @@ class PromptBuilder:
                     "estimated_cost 和 total_estimated_cost 必须是非负数字；"
                     "duration_minutes 可以为 null，提供时必须大于 0。"
                 ),
+                (
+                    "行程质量规则：每天安排至少 2 个 category=spot 的真实景点，"
+                    "每天最多安排 1 个 category=meal 的餐饮活动，餐饮只能作为短时用餐节点，"
+                    "不能替代景点；每天至少保留一个上午或下午的景点游览时段。"
+                ),
             ]
         )
 
