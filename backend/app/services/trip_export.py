@@ -105,23 +105,8 @@ def safe_filename(destination: str, fmt: str) -> str:
 def render_pdf(itinerary: Itinerary) -> bytes:
     if reportlab is None:
         raise RuntimeError("PDF 导出依赖未安装")
-    font_path = next(
-        (
-            Path(path)
-            for path in (
-                "C:/Windows/Fonts/simhei.ttf",
-                "C:/Windows/Fonts/msyh.ttf",
-                "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-            )
-            if Path(path).exists()
-        ),
-        None,
-    )
-    if font_path is None:
-        raise RuntimeError("未找到可嵌入的中文字体")
     font_name = "MiliTravelCJK"
-    if font_name not in pdfmetrics.getRegisteredFontNames():
-        pdfmetrics.registerFont(TTFont(font_name, str(font_path)))
+    font_name = _register_font(font_name)
     styles = getSampleStyleSheet()
     title = ParagraphStyle(
         "MiliTitle",
@@ -222,6 +207,29 @@ def render_pdf(itinerary: Itinerary) -> bytes:
     )
     doc.build(story)
     return buffer.getvalue()
+
+
+def _register_font(preferred_name: str) -> str:
+    """Register an available CJK font, with a portable PDF-safe fallback."""
+    if preferred_name in pdfmetrics.getRegisteredFontNames():
+        return preferred_name
+    candidates = [
+        Path("C:/Windows/Fonts/simhei.ttf"),
+        Path("C:/Windows/Fonts/msyh.ttf"),
+        Path("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"),
+        Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+    ]
+    candidates.extend(Path("/usr/share/fonts").glob("**/*NotoSansCJK*.ttf"))
+    candidates.extend(Path("/usr/share/fonts").glob("**/*wqy*.ttf"))
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            pdfmetrics.registerFont(TTFont(preferred_name, str(path)))
+            return preferred_name
+        except (OSError, ValueError, IndexError):
+            continue
+    return "Helvetica"
 
 
 def content_disposition(filename: str) -> str:
