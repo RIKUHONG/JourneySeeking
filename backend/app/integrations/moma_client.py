@@ -53,14 +53,14 @@ class MomaClient:
         self,
         messages: Iterable[Mapping[str, str]],
         *,
-        max_tokens: int = 4096,
+        max_tokens: int | None = None,
         temperature: float = 0.2,
         top_p: float = 0.9,
     ) -> MomaResult:
         payload = {
             "model": self.config.moma_model,
             "messages": [dict(message) for message in messages],
-            "max_tokens": max_tokens,
+            "max_tokens": max_tokens or self.config.moma_max_tokens,
             "stream": False,
             "temperature": temperature,
             "top_p": top_p,

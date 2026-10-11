@@ -93,7 +93,14 @@ class ItineraryGenerator:
                 return normalized_json
             except (TypeError, ValueError, json.JSONDecodeError) as exc:
                 last_failure = self._failure_reason(exc)
-                logger.warning("MoMA itinerary response rejected before API validation: %s", last_failure)
+                logger.warning(
+                    "MoMA itinerary response rejected before API validation: %s "
+                    "(attempt=%d, chars=%d, tail=%r)",
+                    last_failure,
+                    repair_attempt + 1,
+                    len(raw_content),
+                    raw_content[-240:],
+                )
 
         raise ItineraryGenerationError("MOMA_INVALID_RESPONSE", "MoMA 返回的行程无法通过结构校验。")
 
@@ -185,7 +192,7 @@ class ItineraryGenerator:
     @staticmethod
     def _failure_reason(exc: Exception) -> str:
         if isinstance(exc, json.JSONDecodeError):
-            return "返回内容不是合法 JSON。"
+            return f"返回内容不是合法 JSON（{exc.msg}，第 {exc.lineno} 行第 {exc.colno} 列）。"
         return "返回内容为空、根节点错误或未通过结构校验。"
 
     @staticmethod

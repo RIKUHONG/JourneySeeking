@@ -114,11 +114,43 @@ class AmapClient:
                     name,
                     address if isinstance(address, str) else "",
                     coordinates,
-                    city=city_name or None,
+                    # Amap commonly omits ``city`` for city-scoped results;
+                    # the request's city is authoritative after citylimit=true.
+                    city=city_name or (city.strip() if city else None),
                     province=province_name or None,
                 )
             )
         return places
+
+    def get_poi_photo(self, poi_id: str) -> str | None:
+        """Return the first official photo URL attached to an Amap POI."""
+        return next(iter(self.get_poi_photos(poi_id)), None)
+
+    def get_poi_photos(self, poi_id: str) -> list[str]:
+        """Return official photo URLs attached to an Amap POI."""
+        if not isinstance(poi_id, str) or not poi_id.strip():
+            raise ValueError("POI ID is required")
+        payload = self._request(
+            "/place/detail",
+            {"id": poi_id.strip(), "extensions": "all"},
+        )
+        pois = payload.get("pois")
+        if not isinstance(pois, list) or not pois:
+            return []
+        poi = pois[0]
+        if not isinstance(poi, dict):
+            raise MapServiceError(FailureReason.INVALID_RESPONSE)
+        photos = poi.get("photos")
+        if not isinstance(photos, list):
+            return []
+        urls: list[str] = []
+        for photo in photos:
+            if not isinstance(photo, dict):
+                continue
+            url = photo.get("url")
+            if isinstance(url, str) and url.strip():
+                urls.append(url.strip())
+        return list(dict.fromkeys(urls))
 
     def plan_route(
         self, origin: Coordinates, destination: Coordinates, *, mode: TravelMode = "driving"

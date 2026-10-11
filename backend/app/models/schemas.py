@@ -59,6 +59,7 @@ class Activity(BaseModel):
     estimated_cost: Money
     poi_id: str | None = Field(default=None, description="已核实的高德 POI 标识")
     poi_category: Literal["spot", "meal", "hotel"] | None = None
+    image_url: str | None = Field(default=None, description="景点图片 URL")
     address: str | None = Field(default=None, description="已核实 POI 地址")
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
