@@ -293,5 +293,5 @@ class TripExportFormat(str, Enum):
 
 
 class TripExportQuery(BaseModel):
-    version: int | None = Field(default=None, strict=True, ge=1)
+    version: int | None = Field(default=None, ge=1)
     format: TripExportFormat

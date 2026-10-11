@@ -8,6 +8,7 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI, Query, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.responses import Response as FastAPIResponse
 from pydantic import BaseModel, Field
 
 from .cache import MemoryCache
@@ -21,6 +22,8 @@ from .models.schemas import (
     SessionEditResponse,
     TripEditRequest,
     TripEditResponse,
+    TripExportFormat,
+    TripExportQuery,
     TripListResponse,
     TripRequest,
     TripSaveRequest,
@@ -29,6 +32,13 @@ from .models.schemas import (
 )
 from .services.session_context import SessionError, SessionService
 from .services.trip_edit import MomaDayEditor, TripEditError, TripEditService
+from .services.trip_export import (
+    TripExportError,
+    content_disposition,
+    render_markdown,
+    render_pdf,
+    safe_filename,
+)
 from .services.trip_service import TripService, TripServiceError
 from .storage import (
     InvalidTripCursorError,
@@ -82,10 +92,12 @@ def get_trip_service() -> TripService:
                 map_client,
                 request.destination,
                 minimum_counts={
-                    PoiCategory.SPOT: max(4, ((request.end_date - request.start_date).days + 1) * 2),
+                    PoiCategory.SPOT: max(
+                        4, ((request.end_date - request.start_date).days + 1) * 2
+                    ),
                     PoiCategory.MEAL: 1,
                     PoiCategory.HOTEL: 1,
-                }
+                },
             ),
         ),
         map_enricher=MapEnrichmentService(map_client, cache=_map_cache),
@@ -243,6 +255,16 @@ async def chat_provider_error_handler(request: Request, exc: MomaError) -> JSONR
     return JSONResponse(status_code=502, content=body.model_dump(mode="json"))
 
 
+@app.exception_handler(TripExportError)
+async def trip_export_error_handler(request: Request, exc: TripExportError) -> JSONResponse:
+    body = ErrorResponse(
+        code=ErrorCode.INTERNAL_SERVER_ERROR,
+        message="导出服务暂时不可用",
+        request_id=_request_id(request),
+    )
+    return JSONResponse(status_code=500, content=body.model_dump(mode="json"))
+
+
 @app.exception_handler(Exception)
 async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
     """Return the documented shape for unexpected application failures."""
@@ -357,6 +379,40 @@ def get_trip_version(
     repository: SQLiteTripRepository = Depends(get_trip_repository),  # noqa: B008
 ) -> Itinerary:
     return repository.get_version(trip_id, version)
+
+
+@app.get("/api/trip/{trip_id}/export")
+def export_trip(
+    trip_id: str,
+    query: TripExportQuery = Depends(),  # noqa: B008
+    repository: SQLiteTripRepository = Depends(get_trip_repository),  # noqa: B008
+) -> FastAPIResponse:
+    itinerary = (
+        repository.get_current(trip_id)
+        if query.version is None
+        else repository.get_version(trip_id, query.version)
+    )
+    if query.format is TripExportFormat.MARKDOWN:
+        return FastAPIResponse(
+            content=render_markdown(itinerary).encode("utf-8"),
+            media_type="text/markdown",
+            headers={
+                "Content-Disposition": content_disposition(
+                    safe_filename(itinerary.destination, "md")
+                )
+            },
+        )
+    try:
+        content = render_pdf(itinerary)
+    except RuntimeError as exc:
+        raise TripExportError() from exc
+    return FastAPIResponse(
+        content=content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": content_disposition(safe_filename(itinerary.destination, "pdf"))
+        },
+    )
 
 
 @app.delete("/api/trip/{trip_id}", status_code=status.HTTP_204_NO_CONTENT)
