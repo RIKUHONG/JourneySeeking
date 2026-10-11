@@ -10,6 +10,7 @@ from typing import Any, ClassVar, Protocol
 from pydantic import ValidationError
 
 from backend.app.models.schemas import Itinerary, TripRequest
+from backend.app.services.image_enrichment import ImageEnrichmentService
 from backend.app.services.map_enrichment import MapEnrichmentService
 from backend.app.services.weather_enrichment import WeatherEnrichmentService
 
@@ -49,15 +50,18 @@ class TripService:
         generator: ItineraryGenerator,
         map_enricher: MapEnrichmentService | None = None,
         weather_enricher: WeatherEnrichmentService | None = None,
+        image_enricher: ImageEnrichmentService | None = None,
     ) -> None:
         self.generator = generator
         self.map_enricher = map_enricher
         self.weather_enricher = weather_enricher
+        self.image_enricher = image_enricher
 
     def generate(self, request: TripRequest, *, knowledge_chunks: Sequence[Any] = ()) -> Itinerary:
         itinerary = self.generate_base(request, knowledge_chunks=knowledge_chunks)
         itinerary = self.enrich_map(itinerary)
-        return self.enrich_weather(itinerary)
+        itinerary = self.enrich_weather(itinerary)
+        return self.enrich_images(itinerary)
 
     def generate_base(
         self, request: TripRequest, *, knowledge_chunks: Sequence[Any] = ()
@@ -168,6 +172,11 @@ class TripService:
         if self.weather_enricher is None:
             return itinerary
         return self.weather_enricher.enrich(itinerary)
+
+    def enrich_images(self, itinerary: Itinerary) -> Itinerary:
+        if self.image_enricher is None:
+            return itinerary
+        return self.image_enricher.enrich(itinerary)
 
     @staticmethod
     def _normalize_model_payload(

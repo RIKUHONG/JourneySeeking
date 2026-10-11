@@ -18,7 +18,7 @@ export interface RouteInfo { mode: 'driving' | 'walking'; distance_meters: numbe
 export interface WeatherInfo { status: 'available' | 'unknown'; condition: string | null; low_celsius: number | null; high_celsius: number | null; source: string | null; fetched_at: string | null }
 export interface Activity {
   time: string; name: string; description: string; location: string | null; duration_minutes: number | null; estimated_cost: number
-  poi_id: string | null; poi_category: 'spot' | 'meal' | 'hotel' | null; address: string | null; latitude: number | null; longitude: number | null
+  poi_id: string | null; poi_category: 'spot' | 'meal' | 'hotel' | null; image_url: string | null; address: string | null; latitude: number | null; longitude: number | null
   poi_status: 'not_attempted' | 'verified' | 'not_found' | 'ambiguous' | 'unavailable'; map_source: string | null; route_from_previous: RouteInfo | null
   route_status: 'not_attempted' | 'verified' | 'missing_coordinates' | 'unavailable'
 }
@@ -49,6 +49,7 @@ export function normalizeItinerary(value: Itinerary): Itinerary {
         estimated_cost: activity.estimated_cost ?? 0,
         poi_id: activity.poi_id ?? null,
         poi_category: activity.poi_category ?? null,
+        image_url: activity.image_url ?? null,
         address: activity.address ?? null,
         latitude: activity.latitude ?? null,
         longitude: activity.longitude ?? null,
