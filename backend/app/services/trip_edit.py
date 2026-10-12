@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 from collections.abc import Callable, Mapping, Sequence
 from datetime import date
@@ -20,9 +21,12 @@ from backend.app.models.schemas import (
     TripEditResponse,
     TripRequest,
 )
+from backend.app.services.image_enrichment import ImageEnrichmentService
 from backend.app.services.orchestration import ItineraryCritic
 from backend.app.storage import TripVersionConflictError
 from backend.app.storage.repository import TripRepository
+
+logger = logging.getLogger(__name__)
 
 
 class TripEditError(RuntimeError):
@@ -31,8 +35,12 @@ class TripEditError(RuntimeError):
     code: ClassVar[str] = "ITINERARY_VALIDATION_ERROR"
     message: ClassVar[str] = "单日编辑未通过校验"
 
-    def __init__(self) -> None:
+    def __init__(
+        self, *, reason: str = "validation_failed", details: list[dict[str, Any]] | None = None
+    ) -> None:
         super().__init__(self.message)
+        self.reason = reason
+        self.details = details or []
 
 
 class TripEditTimeoutError(TripEditError):
@@ -75,6 +83,20 @@ class DayEditDraft(BaseModel):
             weather=current.weather,
             weather_advice=current.weather_advice,
         )
+
+
+_SERVER_DERIVED_ACTIVITY_FIELDS = frozenset(
+    {
+        "image_url",
+        "address",
+        "latitude",
+        "longitude",
+        "poi_status",
+        "map_source",
+        "route_from_previous",
+        "route_status",
+    }
+)
 
 
 class DayEditor(Protocol):
@@ -146,7 +168,7 @@ class MomaDayEditor:
             raise
         content = getattr(response, "content", response)
         if not isinstance(content, str):
-            raise TripEditError()
+            raise TripEditError(reason="editor_response_not_text")
         return content
 
 
@@ -158,11 +180,13 @@ class TripEditService:
         *,
         candidate_provider: Callable[[str], Any] | None = None,
         critic: ItineraryCritic | None = None,
+        image_enricher: ImageEnrichmentService | None = None,
     ) -> None:
         self.repository = repository
         self.editor = editor
         self.candidate_provider = candidate_provider
         self.critic = critic or ItineraryCritic()
+        self.image_enricher = image_enricher
 
     def edit(
         self,
@@ -190,12 +214,12 @@ class TripEditService:
         )
         draft = self._parse_draft(raw_draft)
         if draft.date != request.date:
-            raise TripEditError()
+            raise TripEditError(reason="draft_date_mismatch")
 
         try:
             edited_day = draft.as_day(current.days[target_index])
         except ValidationError as exc:
-            raise TripEditError() from exc
+            raise TripEditError(reason="draft_schema_invalid") from exc
         trusted_ids = self._trusted_ids(current, candidates)
         self._validate_pois(current.days[target_index], edited_day, trusted_ids)
         self._hydrate_pois(current, edited_day, candidates)
@@ -215,7 +239,17 @@ class TripEditService:
         )
         report = self.critic.review(critic_request, updated, trusted_poi_ids=trusted_ids or None)
         if not report.accepted:
-            raise TripEditError()
+            raise TripEditError(reason="critic_rejected")
+
+        if self.image_enricher is not None:
+            used_urls = {
+                activity.image_url
+                for index, day in enumerate(updated.days)
+                if index != target_index
+                for activity in day.activities
+                if activity.image_url
+            }
+            self.image_enricher.enrich_day(edited_day, used_urls=used_urls)
 
         saved = self.repository.save_version(updated, expected_version=request.expected_version)
         return TripEditResponse(
@@ -236,10 +270,28 @@ class TripEditService:
     @staticmethod
     def _parse_draft(raw: Mapping[str, Any] | str) -> DayEditDraft:
         try:
-            payload = json.loads(raw) if isinstance(raw, str) else dict(raw)
+            payload = json.loads(_extract_json_object(raw)) if isinstance(raw, str) else dict(raw)
+            payload = _normalize_edit_payload(payload)
             return DayEditDraft.model_validate(payload)
-        except (json.JSONDecodeError, TypeError, ValueError, ValidationError) as exc:
-            raise TripEditError() from exc
+        except ValidationError as exc:
+            if isinstance(raw, str):
+                logger.debug(
+                    "MoMA day edit response schema rejected chars=%d preview=%r",
+                    len(raw),
+                    raw[:500],
+                )
+            details = [
+                {"loc": error.get("loc"), "type": error.get("type")} for error in exc.errors()
+            ]
+            raise TripEditError(reason="draft_schema_invalid", details=details) from exc
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            if isinstance(raw, str):
+                logger.debug(
+                    "MoMA day edit response parse rejected chars=%d preview=%r",
+                    len(raw),
+                    raw[:500],
+                )
+            raise TripEditError(reason="draft_parse_failed") from exc
 
     @staticmethod
     def _trusted_ids(current: Itinerary, candidates: Sequence[Any]) -> set[str]:
@@ -257,9 +309,9 @@ class TripEditService:
         }
         for activity in after.activities:
             if activity.poi_id is not None and activity.poi_id not in trusted_ids:
-                raise TripEditError()
+                raise TripEditError(reason="untrusted_poi")
             if activity.poi_id is None and (activity.name, None) not in existing_unverified:
-                raise TripEditError()
+                raise TripEditError(reason="new_activity_without_trusted_poi")
 
     @staticmethod
     def _hydrate_pois(current: Itinerary, day: DayPlan, candidates: Sequence[Any]) -> None:
@@ -291,6 +343,8 @@ class TripEditService:
                 activity.longitude = prior.longitude
             activity.poi_status = "verified"
             activity.map_source = "amap"
+            if prior is not None:
+                activity.image_url = prior.image_url
             activity.route_from_previous = None
             activity.route_status = "not_attempted"
 
@@ -298,10 +352,10 @@ class TripEditService:
     def _validate_scope(before: Itinerary, after: Itinerary, target_index: int) -> None:
         immutable = ("trip_id", "version", "destination", "start_date", "end_date", "summary")
         if any(getattr(before, field) != getattr(after, field) for field in immutable):
-            raise TripEditError()
+            raise TripEditError(reason="immutable_scope_changed")
         for index, day in enumerate(before.days):
             if index != target_index and day != after.days[index]:
-                raise TripEditError()
+                raise TripEditError(reason="other_day_changed")
 
     @staticmethod
     def _change_summary(before: DayPlan, after: DayPlan) -> list[str]:
@@ -328,7 +382,7 @@ class TripEditService:
             if activity.poi_id is not None
         ]
         if len(ids) != len(set(ids)):
-            raise TripEditError()
+            raise TripEditError(reason="duplicate_poi")
 
 
 def _is_timeout(exc: Exception) -> bool:
@@ -336,3 +390,49 @@ def _is_timeout(exc: Exception) -> bool:
     return (
         isinstance(exc, TimeoutError) or "timeout" in text or "timed out" in text or "超时" in text
     )
+
+
+def _extract_json_object(raw: str) -> str:
+    """Extract one JSON object while leaving schema validation to the caller."""
+    text = raw.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+        if text.lower().startswith("json"):
+            text = text[4:].lstrip()
+
+    decoder = json.JSONDecoder()
+    for index, character in enumerate(text):
+        if character != "{":
+            continue
+        try:
+            _, end_index = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        return text[index : index + end_index]
+    raise json.JSONDecodeError("No JSON object found", text, 0)
+
+
+def _normalize_edit_payload(payload: Any) -> Any:
+    """Remove server-derived activity fields echoed from the target-day context."""
+    if not isinstance(payload, dict):
+        return payload
+    activities = payload.get("activities")
+    if not isinstance(activities, list):
+        return payload
+    normalized = dict(payload)
+    normalized["activities"] = [
+        {
+            key: value
+            for key, value in activity.items()
+            if key not in _SERVER_DERIVED_ACTIVITY_FIELDS
+        }
+        if isinstance(activity, dict)
+        else activity
+        for activity in activities
+    ]
+    return normalized

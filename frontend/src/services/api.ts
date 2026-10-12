@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { ErrorResponse, Itinerary, SessionEditResponse, SessionConstraints, TripEditResponse, TripListResponse, TripRequest, TripSaveRequest, TripSession } from '@/types'
+import type { ErrorResponse, Itinerary, SessionEditResponse, SessionConstraints, TripEditResponse, TripListResponse, TripRequest, TripSaveRequest, TripSession, TripVersionsResponse } from '@/types'
 
 // MoMA may retry up to three times and optional map/weather enrichment runs afterwards.
 const api = axios.create({ baseURL: '/api', timeout: 300000, headers: { 'Content-Type': 'application/json' } })
@@ -12,10 +12,13 @@ function rethrow(error: unknown): never {
   throw error instanceof Error ? error : new Error('请求失败')
 }
 
-export async function generateTrip(request: TripRequest) { try { return (await api.post<Itinerary>('/trip/generate', request)).data } catch (e) { return rethrow(e) } }
+export async function generateTrip(request: TripRequest) { try { return (await api.post<Itinerary>('/trip/generate', request, { timeout: 0 })).data } catch (e) { return rethrow(e) } }
 export async function saveTrip(itinerary: Itinerary, expected_version: number | null) { try { const body: TripSaveRequest = { itinerary, expected_version }; return (await api.post<Itinerary>('/trip/save', body)).data } catch (e) { return rethrow(e) } }
 export async function listTrips(cursor?: string | null) { try { return (await api.get<TripListResponse>('/trip', { params: { limit: 20, cursor: cursor || undefined } })).data } catch (e) { return rethrow(e) } }
 export async function getTrip(tripId: string) { try { return (await api.get<Itinerary>(`/trip/${tripId}`)).data } catch (e) { return rethrow(e) } }
+export async function listTripVersions(tripId: string) { try { return (await api.get<TripVersionsResponse>(`/trip/${tripId}/versions`)).data } catch (e) { return rethrow(e) } }
+export async function getTripVersion(tripId: string, version: number) { try { return (await api.get<Itinerary>(`/trip/${tripId}/versions/${version}`)).data } catch (e) { return rethrow(e) } }
+export async function restoreTripVersion(tripId: string, version: number, expected_version: number) { try { return (await api.post<Itinerary>(`/trip/${tripId}/restore`, { version, expected_version })).data } catch (e) { return rethrow(e) } }
 export async function deleteTrip(tripId: string) { try { await api.delete(`/trip/${tripId}`) } catch (e) { return rethrow(e) } }
 export async function editTrip(tripId: string, expected_version: number, date: string, instruction: string) { try { return (await api.post<TripEditResponse>(`/trip/${tripId}/edit`, { expected_version, date, instruction })).data } catch (e) { return rethrow(e) } }
 export async function createSession(tripId: string, version: number, constraints: SessionConstraints = {}) { try { return (await api.post<TripSession>(`/trip/${tripId}/sessions`, { version, constraints })).data } catch (e) { return rethrow(e) } }

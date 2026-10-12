@@ -91,6 +91,7 @@ def test_orchestrator_runs_bounded_pipeline_and_passes_cited_knowledge() -> None
         "candidate_quality",
         "map_enrichment",
         "weather_enrichment",
+        "image_enrichment",
         "critic",
     ]
     assert result.trace[3].status is StepStatus.DEGRADED

@@ -34,7 +34,9 @@ def itinerary(days: int = 5) -> Itinerary:
 
 
 def forecast(day: int, condition: str = "晴") -> DailyForecast:
-    return DailyForecast(date=date(2026, 10, day), condition=condition, low_celsius=18, high_celsius=25)
+    return DailyForecast(
+        date=date(2026, 10, day), condition=condition, low_celsius=18, high_celsius=25
+    )
 
 
 def test_weather_maps_by_date_and_marks_days_after_four_unknown() -> None:
@@ -59,9 +61,9 @@ def test_weather_maps_by_date_and_marks_days_after_four_unknown() -> None:
 
 def test_weather_failure_returns_unchanged_base_itinerary(caplog) -> None:
     base = itinerary(3)
-    result = WeatherEnrichmentService(
-        MockWeatherService(failure=FailureReason.TIMEOUT)
-    ).enrich(base)
+    result = WeatherEnrichmentService(MockWeatherService(failure=FailureReason.TIMEOUT)).enrich(
+        base
+    )
 
     assert [day.weather for day in result.days] == [None, None, None]
     assert [day.activities[0].name for day in result.days] == ["西湖"] * 3

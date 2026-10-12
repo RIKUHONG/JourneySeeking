@@ -197,15 +197,17 @@ def test_chat_raises_service_error_after_network_retries(settings, monkeypatch):
 def test_chat_converts_malformed_success_response_to_service_error(settings):
     response = FakeResponse(status_code=200, body={"choices": []})
 
-    with pytest.raises(MomaServiceError):
-        MomaClient(config=settings, session=FakeSession([response])).chat([])
+    with pytest.raises(MomaServiceError) as exc_info:
+        MomaClient(config=settings, session=FakeSession([response] * 3)).chat([])
+    assert exc_info.value.reason == "invalid_response"
 
 
 def test_chat_rejects_empty_content(settings):
     response = FakeResponse(status_code=200, body=success_body(content="  "))
 
-    with pytest.raises(MomaServiceError):
-        MomaClient(config=settings, session=FakeSession([response])).chat([])
+    with pytest.raises(MomaServiceError) as exc_info:
+        MomaClient(config=settings, session=FakeSession([response] * 3)).chat([])
+    assert exc_info.value.reason == "invalid_response"
 
 
 def test_chat_converts_non_success_response_to_service_error_without_leaking_long_body(settings):

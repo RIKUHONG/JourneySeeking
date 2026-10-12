@@ -29,6 +29,9 @@ class Settings:
     moma_timeout_seconds: float = float(os.getenv("MOMA_TIMEOUT_SECONDS", "180"))
     moma_max_retries: int = int(os.getenv("MOMA_MAX_RETRIES", "1"))
     moma_max_tokens: int = int(os.getenv("MOMA_MAX_TOKENS", "8192"))
+    orchestration_step_timeout_seconds: float = float(
+        os.getenv("ORCHESTRATION_STEP_TIMEOUT_SECONDS", "0")
+    )
     amap_api_key: str = os.getenv("AMAP_API_KEY", "").strip()
     amap_base_url: str = os.getenv("AMAP_BASE_URL", "https://restapi.amap.com/v3")
     amap_timeout_seconds: float = float(os.getenv("AMAP_TIMEOUT_SECONDS", "10"))
@@ -37,6 +40,22 @@ class Settings:
     weather_base_url: str = os.getenv("WEATHER_BASE_URL", "https://restapi.amap.com/v3")
     weather_timeout_seconds: float = float(os.getenv("WEATHER_TIMEOUT_SECONDS", "10"))
     weather_max_retries: int = int(os.getenv("WEATHER_MAX_RETRIES", "2"))
+
+    @property
+    def effective_orchestration_step_timeout_seconds(self) -> float:
+        """Allow a step to consume its provider's configured retry budget.
+
+        A zero override derives a bound from the slowest external integration.
+        This avoids rejecting a synchronous MoMA call at the old 30-second
+        orchestration default while retaining an explicit operator override.
+        """
+        if self.orchestration_step_timeout_seconds > 0:
+            return self.orchestration_step_timeout_seconds
+        retry_backoff = sum(2**attempt for attempt in range(self.moma_max_retries))
+        moma_budget = self.moma_timeout_seconds * (self.moma_max_retries + 1) + retry_backoff
+        map_budget = self.amap_timeout_seconds * (self.amap_max_retries + 1)
+        weather_budget = self.weather_timeout_seconds * (self.weather_max_retries + 1)
+        return max(30.0, moma_budget, map_budget, weather_budget) + 5.0
 
     def validate_moma(self) -> None:
         if not self.moma_api_key.strip():

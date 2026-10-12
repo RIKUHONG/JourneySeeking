@@ -27,6 +27,8 @@ export interface Itinerary { trip_id: string | null; version: number | null; des
 export interface TripSaveRequest { itinerary: Itinerary; expected_version: number | null }
 export interface TripSummary { trip_id: string; version: number; destination: string; summary: string; start_date: string; end_date: string }
 export interface TripListResponse { items: TripSummary[]; next_cursor: string | null }
+export interface TripVersionSummary { trip_id: string; version: number; created_at: string; summary: string }
+export interface TripVersionsResponse { trip_id: string; current_version: number; items: TripVersionSummary[] }
 export interface TripEditResponse { trip_id: string; version: number; itinerary: Itinerary; change_summary: string[] }
 export interface SessionConstraints { travelers?: number; budget?: number | null; preferences?: string[]; pace?: Pace | null; dietary_preferences?: string[]; hotel_level?: HotelLevel | null; special_notes?: string | null }
 export interface SessionTurn { turn_id: string; instruction: string; target_date: string; base_version: number; result_version: number | null; status: string; change_summary: string[]; created_at: string }

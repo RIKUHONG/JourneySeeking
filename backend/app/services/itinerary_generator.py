@@ -50,6 +50,8 @@ class ItineraryGenerator:
         self.last_candidate_pool = None
         self.last_candidate_diagnostics = None
         self.last_knowledge_chunks = ()
+        self.last_usage: Mapping[str, Any] = {}
+        self.last_provider_request_id: str | None = None
 
     def generate(self, request: Any, *, knowledge_chunks: Sequence[Any] = ()) -> str:
         """Return normalized JSON text for a trip request."""
@@ -83,6 +85,9 @@ class ItineraryGenerator:
                         "MOMA_TIMEOUT", "MoMA 行程生成请求超时。"
                     ) from exc
                 raise
+
+            self.last_usage = dict(getattr(response, "usage", {}) or {})
+            self.last_provider_request_id = getattr(response, "request_id", None)
 
             raw_content = self._content_text(getattr(response, "content", response))
             last_raw_content = raw_content

@@ -3,11 +3,11 @@ from types import SimpleNamespace
 
 import pytest
 
+from backend.app.integrations.mock_moma_client import MockMomaClient
 from backend.app.services.itinerary_generator import (
     ItineraryGenerationError,
     ItineraryGenerator,
 )
-from backend.app.integrations.mock_moma_client import MockMomaClient
 
 VALID_ITINERARY = {
     "destination": "杭州",

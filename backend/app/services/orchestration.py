@@ -176,7 +176,7 @@ class TripOrchestrator:
         *,
         knowledge: KnowledgeRetriever | None = None,
         critic: ItineraryCritic | None = None,
-        max_steps: int = 8,
+        max_steps: int = 9,
         step_timeout_seconds: float = 30.0,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -278,6 +278,16 @@ class TripOrchestrator:
                 "weather_enrichment",
                 "weather_service",
                 lambda: self.trip_service.enrich_weather(itinerary),
+            )
+
+        if self.trip_service.image_enricher is None:
+            self._record_degraded(trace, "image_enrichment", "image_service", "not_configured")
+        else:
+            itinerary = self._step(
+                trace,
+                "image_enrichment",
+                "image_service",
+                lambda: self.trip_service.enrich_images(itinerary),
             )
 
         trusted_ids = (
