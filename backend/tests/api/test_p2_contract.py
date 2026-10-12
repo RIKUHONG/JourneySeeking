@@ -106,6 +106,8 @@ def test_versioned_operation_models_are_serializable() -> None:
     assert TripExportFormat.MARKDOWN.value == "markdown"
     assert TripListQuery(limit=25).limit == 25
     assert TripExportQuery(version=2, format="pdf").format is TripExportFormat.PDF
+    with pytest.raises(ValidationError):
+        TripExportQuery(version=1.0, format="pdf")
 
     with pytest.raises(ValidationError):
         TripEditResponse(

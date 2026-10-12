@@ -13,6 +13,7 @@ dependencies = [
     "pydantic>=2.0,<3.0",
     "python-dotenv>=1.0,<2.0",
     "uvicorn[standard]>=0.29,<1.0",
+    "reportlab>=4.0,<6.0",
 ]
 
 [project.optional-dependencies]
@@ -25,6 +26,9 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["backend*"]
 exclude = ["repo_inspect_*"]
+
+[tool.setuptools.package-data]
+backend = ["resources/fonts/*.ttc"]
 
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
