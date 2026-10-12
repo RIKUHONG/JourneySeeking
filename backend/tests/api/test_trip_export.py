@@ -52,6 +52,7 @@ def test_markdown_and_pdf_export_use_requested_version(tmp_path: Path) -> None:
         assert markdown.headers["content-type"].startswith("text/markdown")
         assert "西湖漫步" in markdown.text
         assert "暂无安排。" in markdown.text
+        assert "暂无来源" in markdown.text
         assert "attachment" in markdown.headers["content-disposition"]
 
         pdf = client.get(f"/api/trip/{trip_id}/export", params={"version": 1, "format": "pdf"})
@@ -59,6 +60,32 @@ def test_markdown_and_pdf_export_use_requested_version(tmp_path: Path) -> None:
         assert pdf.headers["content-type"].startswith("application/pdf")
         assert pdf.content.startswith(b"%PDF")
         assert len(pdf.content) > 1000
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_pdf_export_escapes_markup_and_handles_long_text(tmp_path: Path) -> None:
+    data = payload()
+    itinerary = data["itinerary"]
+    assert isinstance(itinerary, dict)
+    itinerary["destination"] = "<notclosed & destination>"
+    itinerary["summary"] = "<notclosed & summary> " * 300
+    itinerary["days"][0]["title"] = "<day & title>"
+    activity = itinerary["days"][0]["activities"][0]
+    activity["name"] = "<activity & name>"
+    activity["description"] = ">" * 2000 + " & <"
+    activity["location"] = "<location>"
+    app.dependency_overrides[get_trip_repository] = lambda: SQLiteTripRepository(
+        tmp_path / "trips.sqlite3"
+    )
+    client = TestClient(app)
+    try:
+        created = client.post("/api/trip/save", json=data)
+        assert created.status_code == 200
+        trip_id = created.json()["trip_id"]
+        response = client.get(f"/api/trip/{trip_id}/export", params={"format": "pdf"})
+        assert response.status_code == 200
+        assert response.content.startswith(b"%PDF")
     finally:
         app.dependency_overrides.clear()
 

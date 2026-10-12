@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import io
 import re
+from dataclasses import dataclass
+from html import escape
 from pathlib import Path
 from typing import Final
 from urllib.parse import quote
@@ -23,78 +25,129 @@ try:
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.cidfonts import UnicodeCIDFont
     from reportlab.pdfbase.ttfonts import TTFont
-    from reportlab.platypus import (
-        Paragraph,
-        SimpleDocTemplate,
-        Spacer,
-        Table,
-        TableStyle,
-    )
-except ImportError:  # pragma: no cover - exercised by dependency installation
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+except ImportError:
     reportlab = None
 else:
     reportlab = True
-
 _SAFE_FILENAME: Final = re.compile(r"[^\w\-.\u4e00-\u9fff]+")
 
 
 def _text(value: object | None, fallback: str = "暂无数据") -> str:
-    if value is None or value == "":
-        return fallback
-    return str(value)
+    return fallback if value is None or value == "" else str(value)
 
 
 def _weather_text(weather: WeatherInfo | None) -> str:
-    if weather is None or weather.status == "unknown":
-        return "天气未知"
-    condition = _text(weather.condition, "天气可用")
-    low = _text(weather.low_celsius, "-")
-    high = _text(weather.high_celsius, "-")
-    return f"{condition}，{low}°C 至 {high}°C"
+    if weather is None:
+        return "天气未知（暂无来源）"
+    if weather.status == "unknown":
+        return f"天气未知（来源：{_text(weather.source, '暂无来源')}）"
+    return f"{_text(weather.condition, '天气可用')}，{_text(weather.low_celsius, '-')}°C 至 {_text(weather.high_celsius, '-')}°C（来源：{_text(weather.source, '暂无来源')}）"
 
 
-def _activity_line(activity: Activity) -> str:
-    details = [
-        f"地点：{_text(activity.location or activity.address)}",
-        f"费用：¥{activity.estimated_cost:g}",
-    ]
-    if activity.route_from_previous is not None:
-        route = activity.route_from_previous
-        details.append(
-            f"路线：{route.mode} {route.distance_meters / 1000:.1f} km / {route.duration_seconds // 60} 分钟"
-        )
-    return f"- **{_text(activity.time)} {activity.name}**：{_text(activity.description)}（{'；'.join(details)}）"
+@dataclass(frozen=True)
+class ExportActivity:
+    time: str
+    name: str
+    description: str
+    location: str
+    cost: str
+    poi: str
+    route: str
+
+
+@dataclass(frozen=True)
+class ExportDay:
+    date: str
+    title: str
+    weather: str
+    advice: str
+    activities: tuple[ExportActivity, ...]
+
+
+@dataclass(frozen=True)
+class ExportDocument:
+    destination: str
+    start_date: str
+    end_date: str
+    version: str
+    summary: str
+    total_cost: str
+    map_status: str
+    days: tuple[ExportDay, ...]
+
+
+def _normalize_activity(activity: Activity) -> ExportActivity:
+    poi = f"POI：{_text(activity.poi_id, '暂无来源')}；状态：{activity.poi_status}；地图来源：{_text(activity.map_source, '暂无来源')}"
+    if activity.route_from_previous is None:
+        route = f"路线：{activity.route_status}；来源：暂无来源"
+    else:
+        info = activity.route_from_previous
+        route = f"路线：{info.mode} {info.distance_meters / 1000:.1f} km / {info.duration_seconds // 60} 分钟；来源：{_text(info.source, '暂无来源')}"
+    return ExportActivity(
+        _text(activity.time),
+        _text(activity.name),
+        _text(activity.description),
+        _text(activity.location or activity.address),
+        f"¥{activity.estimated_cost:g}",
+        poi,
+        route,
+    )
+
+
+def normalize_export(itinerary: Itinerary) -> ExportDocument:
+    return ExportDocument(
+        _text(itinerary.destination),
+        itinerary.start_date.isoformat(),
+        itinerary.end_date.isoformat(),
+        _text(itinerary.version),
+        _text(itinerary.summary),
+        f"¥{itinerary.total_estimated_cost:g}",
+        _text(itinerary.map_enrichment_status),
+        tuple(
+            ExportDay(
+                day.date.isoformat(),
+                _text(day.title),
+                _weather_text(day.weather),
+                "；".join(day.weather_advice) if day.weather_advice else "暂无建议",
+                tuple(_normalize_activity(item) for item in day.activities),
+            )
+            for day in itinerary.days
+        ),
+    )
 
 
 def render_markdown(itinerary: Itinerary) -> str:
+    doc = normalize_export(itinerary)
     lines = [
-        f"# {_text(itinerary.destination)}旅行行程",
+        f"# {doc.destination}旅行行程",
         "",
-        f"**日期**：{itinerary.start_date.isoformat()} 至 {itinerary.end_date.isoformat()}  ",
-        f"**版本**：{_text(itinerary.version)}  ",
-        f"**预计总费用**：¥{itinerary.total_estimated_cost:g}",
+        f"**日期**：{doc.start_date} 至 {doc.end_date}  ",
+        f"**版本**：{doc.version}  ",
+        f"**预计总费用**：{doc.total_cost}",
         "",
-        _text(itinerary.summary),
+        doc.summary,
         "",
     ]
-    for day in itinerary.days:
-        lines.extend(
-            [
-                f"## {day.date.isoformat()} · {_text(day.title)}",
-                "",
-                f"**天气**：{_weather_text(day.weather)}",
-                "",
-            ]
-        )
-        if day.weather_advice:
-            lines.append(f"**天气建议**：{'；'.join(day.weather_advice)}")
-            lines.append("")
+    for day in doc.days:
+        lines += [
+            f"## {day.date} · {day.title}",
+            "",
+            f"**天气**：{day.weather}",
+            f"**天气建议**：{day.advice}",
+            "",
+        ]
         if not day.activities:
-            lines.extend(["暂无安排。", ""])
-        else:
-            lines.extend(_activity_line(activity) for activity in day.activities)
-            lines.append("")
-    lines.extend(["---", "", f"地图补全状态：{itinerary.map_enrichment_status}", ""])
+            lines += ["暂无安排。", ""]
+        for item in day.activities:
+            lines += [
+                f"- **{item.time} {item.name}**：{item.description}",
+                f"  - 地点：{item.location}；费用：{item.cost}",
+                f"  - {item.poi}",
+                f"  - {item.route}",
+            ]
+        lines.append("")
+    lines += ["---", "", f"地图补全状态：{doc.map_status}", ""]
     return "\n".join(lines)
 
 
@@ -103,11 +156,23 @@ def safe_filename(destination: str, fmt: str) -> str:
     return f"{name}-行程.{fmt}"
 
 
+def _p(value: str, *, br: bool = False) -> str:
+    escaped = escape(value, quote=True)
+    # Give ReportLab legal break opportunities for hostile or unspaced long text.
+    escaped = "\u200b".join(escaped[index : index + 40] for index in range(0, len(escaped), 40))
+    return escaped + ("<br/>" if br else "")
+
+
+def _cell_text(value: str, limit: int = 600) -> str:
+    if len(value) <= limit:
+        return value
+    return value[:limit] + "…（内容过长，已截断）"
+
+
 def render_pdf(itinerary: Itinerary) -> bytes:
     if reportlab is None:
         raise RuntimeError("PDF 导出依赖未安装")
-    font_name = "MiliTravelCJK"
-    font_name = _register_font(font_name)
+    font_name = _register_font("MiliTravelCJK")
     styles = getSampleStyleSheet()
     title = ParagraphStyle(
         "MiliTitle",
@@ -135,51 +200,70 @@ def render_pdf(itinerary: Itinerary) -> bytes:
         leading=15,
         spaceAfter=4,
     )
-    small = ParagraphStyle("MiliSmall", parent=body, fontSize=8.5, leading=13, textColor="#555555")
+    small = ParagraphStyle(
+        "MiliSmall",
+        parent=body,
+        fontSize=8.5,
+        leading=13,
+        textColor="#555555",
+        wordWrap="CJK",
+        splitLongWords=True,
+    )
+    doc = normalize_export(itinerary)
     story = [
-        Paragraph(f"{_text(itinerary.destination)}旅行行程", title),
+        Paragraph(_p(f"{doc.destination}旅行行程"), title),
         Paragraph(
-            f"日期：{itinerary.start_date} 至 {itinerary.end_date} | 版本：{_text(itinerary.version)} | 预计总费用：¥{itinerary.total_estimated_cost:g}",
+            _p(
+                f"日期：{doc.start_date} 至 {doc.end_date} | 版本：{doc.version} | 预计总费用：{doc.total_cost}"
+            ),
             body,
         ),
-        Paragraph(_text(itinerary.summary), body),
+        Paragraph(_p(doc.summary), body),
         Spacer(1, 4 * mm),
     ]
-    for day in itinerary.days:
-        story.append(Paragraph(f"{day.date} · {_text(day.title)}", heading))
-        story.append(Paragraph(f"天气：{_weather_text(day.weather)}", small))
-        if day.weather_advice:
-            story.append(Paragraph(f"天气建议：{'；'.join(day.weather_advice)}", small))
+    for day in doc.days:
+        story += [
+            Paragraph(_p(f"{day.date} · {day.title}"), heading),
+            Paragraph(_p(f"天气：{day.weather}"), small),
+            Paragraph(_p(f"天气建议：{day.advice}"), small),
+        ]
         rows = [
             [
                 Paragraph("时间", small),
                 Paragraph("活动", small),
                 Paragraph("地点与说明", small),
+                Paragraph("来源与路线", small),
                 Paragraph("费用", small),
             ]
         ]
-        for activity in day.activities:
-            rows.append(
-                [
-                    Paragraph(_text(activity.time), small),
-                    Paragraph(_text(activity.name), small),
-                    Paragraph(
-                        f"{_text(activity.location or activity.address)}<br/>{_text(activity.description)}",
-                        small,
-                    ),
-                    Paragraph(f"¥{activity.estimated_cost:g}", small),
-                ]
-            )
-        if not day.activities:
+        if day.activities:
+            for item in day.activities:
+                rows.append(
+                    [
+                        Paragraph(_p(item.time), small),
+                        Paragraph(_p(item.name), small),
+                        Paragraph(
+                            _p(_cell_text(item.location), br=True)
+                            + _p(_cell_text(item.description)),
+                            small,
+                        ),
+                        Paragraph(
+                            _p(_cell_text(item.poi), br=True) + _p(_cell_text(item.route)), small
+                        ),
+                        Paragraph(_p(item.cost), small),
+                    ]
+                )
+        else:
             rows.append(
                 [
                     Paragraph("-", small),
                     Paragraph("暂无安排", small),
                     Paragraph("暂无数据", small),
+                    Paragraph("暂无来源", small),
                     Paragraph("¥0", small),
                 ]
             )
-        table = Table(rows, colWidths=[20 * mm, 35 * mm, 105 * mm, 20 * mm], repeatRows=1)
+        table = Table(rows, colWidths=[17 * mm, 30 * mm, 58 * mm, 57 * mm, 18 * mm], repeatRows=1)
         table.setStyle(
             TableStyle(
                 [
@@ -187,31 +271,29 @@ def render_pdf(itinerary: Itinerary) -> bytes:
                     ("BACKGROUND", (0, 0), (-1, 0), "#E8EEF8"),
                     ("GRID", (0, 0), (-1, -1), 0.3, "#B8C2D1"),
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 5),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-                    ("TOPPADDING", (0, 0), (-1, -1), 5),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
                 ]
             )
         )
-        story.extend([table, Spacer(1, 4 * mm)])
-    story.append(Paragraph(f"地图补全状态：{itinerary.map_enrichment_status}", small))
+        story += [table, Spacer(1, 4 * mm)]
+    story.append(Paragraph(_p(f"地图补全状态：{doc.map_status}"), small))
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
+    SimpleDocTemplate(
         buffer,
         pagesize=A4,
         rightMargin=15 * mm,
         leftMargin=15 * mm,
         topMargin=15 * mm,
         bottomMargin=15 * mm,
-        title=f"{itinerary.destination}旅行行程",
-    )
-    doc.build(story)
+        title=f"{doc.destination}旅行行程",
+    ).build(story)
     return buffer.getvalue()
 
 
 def _register_font(preferred_name: str) -> str:
-    """Register an available CJK font, with a portable PDF-safe fallback."""
     if preferred_name in pdfmetrics.getRegisteredFontNames():
         return preferred_name
     candidates = [
@@ -223,13 +305,12 @@ def _register_font(preferred_name: str) -> str:
     candidates.extend(Path("/usr/share/fonts").glob("**/*NotoSansCJK*.ttf"))
     candidates.extend(Path("/usr/share/fonts").glob("**/*wqy*.ttf"))
     for path in candidates:
-        if not path.exists():
-            continue
-        try:
-            pdfmetrics.registerFont(TTFont(preferred_name, str(path)))
-            return preferred_name
-        except (OSError, ValueError, IndexError):
-            continue
+        if path.exists():
+            try:
+                pdfmetrics.registerFont(TTFont(preferred_name, str(path)))
+                return preferred_name
+            except (OSError, ValueError, IndexError):
+                pass
     try:
         pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
         return "STSong-Light"
@@ -238,6 +319,5 @@ def _register_font(preferred_name: str) -> str:
 
 
 def content_disposition(filename: str) -> str:
-    """Return an RFC 5987 header safe for Starlette's latin-1 header encoding."""
     ascii_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", filename) or "trip"
     return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
