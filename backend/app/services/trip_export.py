@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import os
 import re
 from dataclasses import dataclass
 from html import escape
@@ -23,7 +24,6 @@ try:
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
     from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
     from reportlab.pdfbase.ttfonts import TTFont
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 except ImportError:
@@ -296,26 +296,19 @@ def render_pdf(itinerary: Itinerary) -> bytes:
 def _register_font(preferred_name: str) -> str:
     if preferred_name in pdfmetrics.getRegisteredFontNames():
         return preferred_name
-    candidates = [
-        Path("C:/Windows/Fonts/simhei.ttf"),
-        Path("C:/Windows/Fonts/msyh.ttf"),
-        Path("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"),
-        Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
-    ]
-    candidates.extend(Path("/usr/share/fonts").glob("**/*NotoSansCJK*.ttf"))
-    candidates.extend(Path("/usr/share/fonts").glob("**/*wqy*.ttf"))
-    for path in candidates:
-        if path.exists():
-            try:
-                pdfmetrics.registerFont(TTFont(preferred_name, str(path)))
-                return preferred_name
-            except (OSError, ValueError, IndexError):
-                pass
+    configured = os.getenv("MILITRAVEL_PDF_FONT", "").strip()
+    path = (
+        Path(configured)
+        if configured
+        else Path(__file__).resolve().parents[2] / "resources" / "fonts" / "msyh.ttc"
+    )
+    if not path.is_file():
+        raise RuntimeError(f"PDF 中文字体资源不存在：{path}")
     try:
-        pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
-        return "STSong-Light"
-    except (OSError, ValueError):
-        return "Helvetica"
+        pdfmetrics.registerFont(TTFont(preferred_name, str(path), subfontIndex=0))
+    except (OSError, ValueError, IndexError) as exc:
+        raise RuntimeError(f"PDF 中文字体资源无法加载：{path}") from exc
+    return preferred_name
 
 
 def content_disposition(filename: str) -> str:

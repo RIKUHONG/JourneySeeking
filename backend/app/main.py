@@ -23,7 +23,6 @@ from .models.schemas import (
     TripEditRequest,
     TripEditResponse,
     TripExportFormat,
-    TripExportQuery,
     TripListResponse,
     TripRequest,
     TripSaveRequest,
@@ -384,15 +383,26 @@ def get_trip_version(
 @app.get("/api/trip/{trip_id}/export")
 def export_trip(
     trip_id: str,
-    query: TripExportQuery = Depends(),  # noqa: B008
+    version: str | None = Query(default=None),
+    format: TripExportFormat = Query(...),  # noqa: B008
     repository: SQLiteTripRepository = Depends(get_trip_repository),  # noqa: B008
 ) -> FastAPIResponse:
+    if version is not None and (not version.isdecimal() or int(version) < 1):
+        raise RequestValidationError(
+            [
+                {
+                    "loc": ("query", "version"),
+                    "msg": "version must be a positive integer",
+                    "type": "int_type",
+                }
+            ]
+        )
     itinerary = (
         repository.get_current(trip_id)
-        if query.version is None
-        else repository.get_version(trip_id, query.version)
+        if version is None
+        else repository.get_version(trip_id, int(version))
     )
-    if query.format is TripExportFormat.MARKDOWN:
+    if format is TripExportFormat.MARKDOWN:
         return FastAPIResponse(
             content=render_markdown(itinerary).encode("utf-8"),
             media_type="text/markdown",

@@ -27,6 +27,9 @@ dev = [
 include = ["backend*"]
 exclude = ["repo_inspect_*"]
 
+[tool.setuptools.package-data]
+backend = ["resources/fonts/*.ttc"]
+
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
 asyncio_mode = "auto"

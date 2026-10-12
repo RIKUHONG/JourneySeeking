@@ -104,3 +104,17 @@ def test_export_missing_version_and_invalid_format_follow_contract(tmp_path: Pat
         assert invalid.status_code == 422
     finally:
         app.dependency_overrides.clear()
+
+
+def test_export_rejects_non_integer_version(tmp_path: Path) -> None:
+    app.dependency_overrides[get_trip_repository] = lambda: SQLiteTripRepository(
+        tmp_path / "trips.sqlite3"
+    )
+    client = TestClient(app)
+    try:
+        response = client.get(
+            "/api/trip/not-found/export", params={"version": "1.0", "format": "pdf"}
+        )
+        assert response.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
