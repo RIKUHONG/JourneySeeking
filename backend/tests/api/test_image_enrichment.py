@@ -6,16 +6,36 @@ from backend.app.services.image_enrichment import ImageEnrichmentService
 
 def make_itinerary() -> Itinerary:
     return Itinerary(
-        destination="杭州", start_date=date(2026, 10, 1), end_date=date(2026, 10, 3),
-        summary="测试行程", days=[
-            DayPlan(date=date(2026, 10, 1), title="景点", activities=[
-                Activity(time="09:00", name="西湖", description="景点", estimated_cost=0, poi_category="spot"),
-                Activity(time="12:00", name="午餐", description="餐饮", estimated_cost=0, poi_category="meal"),
-                Activity(time="15:00", name="灵隐寺", description="寺庙景点", estimated_cost=0),
-            ]),
+        destination="杭州",
+        start_date=date(2026, 10, 1),
+        end_date=date(2026, 10, 3),
+        summary="测试行程",
+        days=[
+            DayPlan(
+                date=date(2026, 10, 1),
+                title="景点",
+                activities=[
+                    Activity(
+                        time="09:00",
+                        name="西湖",
+                        description="景点",
+                        estimated_cost=0,
+                        poi_category="spot",
+                    ),
+                    Activity(
+                        time="12:00",
+                        name="午餐",
+                        description="餐饮",
+                        estimated_cost=0,
+                        poi_category="meal",
+                    ),
+                    Activity(time="15:00", name="灵隐寺", description="寺庙景点", estimated_cost=0),
+                ],
+            ),
             DayPlan(date=date(2026, 10, 2), title="第二天", activities=[]),
             DayPlan(date=date(2026, 10, 3), title="第三天", activities=[]),
-        ], total_estimated_cost=0,
+        ],
+        total_estimated_cost=0,
     )
 
 
@@ -34,7 +54,12 @@ class StubAmap:
 
 
 def test_enrichment_uses_verified_poi_ids_and_caches_results() -> None:
-    client = StubAmap({"xihu": "https://webapi.amap.com/photo/xihu.jpg", "lingyin": "https://webapi.amap.com/photo/lingyin.jpg"})
+    client = StubAmap(
+        {
+            "xihu": "https://webapi.amap.com/photo/xihu.jpg",
+            "lingyin": "https://webapi.amap.com/photo/lingyin.jpg",
+        }
+    )
     itinerary = make_itinerary()
     itinerary.days[0].activities[0].poi_id = "xihu"
     itinerary.days[0].activities[2].poi_id = "lingyin"

@@ -19,17 +19,33 @@ class MomaError(RuntimeError):
 class MomaAuthenticationError(MomaError):
     """The API key is invalid or lacks permission."""
 
+    reason = "authentication"
+
 
 class MomaRateLimitError(MomaError):
     """The service rate-limited the request."""
+
+    reason = "rate_limit"
 
 
 class MomaServiceError(MomaError):
     """The upstream MoMA service returned an error."""
 
+    reason = "service"
+
+    def __init__(
+        self, message: str, *, status_code: int | str | None = None, reason: str | None = None
+    ):
+        super().__init__(message)
+        self.status_code = status_code
+        if reason is not None:
+            self.reason = reason
+
 
 class MomaTimeoutError(MomaServiceError):
     """The upstream MoMA request timed out after retries."""
+
+    reason = "timeout"
 
 
 @dataclass(frozen=True)
@@ -81,18 +97,26 @@ class MomaClient:
                 )
             except httpx.TimeoutException as exc:
                 if attempt >= self.config.moma_max_retries:
-                    raise MomaTimeoutError(f"MoMA 网络请求超时：{exc}") from exc
+                    raise MomaTimeoutError(f"MoMA 网络请求超时：{exc}", reason="timeout") from exc
                 time.sleep(2**attempt)
                 continue
             except httpx.RequestError as exc:
                 if attempt >= self.config.moma_max_retries:
-                    raise MomaServiceError(f"MoMA 网络请求失败：{exc}") from exc
+                    raise MomaServiceError(f"MoMA 网络请求失败：{exc}", reason="network") from exc
                 time.sleep(2**attempt)
                 continue
 
             last_response = response
             if response.status_code == 200:
-                return self._parse_response(response)
+                try:
+                    return self._parse_response(response)
+                except MomaServiceError as exc:
+                    if getattr(exc, "reason", None) != "invalid_response":
+                        raise
+                    if attempt >= self.config.moma_max_retries:
+                        raise
+                    time.sleep(2**attempt)
+                    continue
             if response.status_code in (401, 403):
                 raise MomaAuthenticationError(
                     f"MoMA 认证或权限失败（HTTP {response.status_code}）。"
@@ -109,7 +133,11 @@ class MomaClient:
 
         detail = self._safe_error_detail(last_response)
         status = last_response.status_code if last_response is not None else "unknown"
-        raise MomaServiceError(f"MoMA 服务调用失败（HTTP {status}）：{detail}")
+        raise MomaServiceError(
+            f"MoMA 服务调用失败（HTTP {status}）：{detail}",
+            status_code=status,
+            reason="http_error",
+        )
 
     @staticmethod
     def _parse_response(response: Any) -> MomaResult:
@@ -118,12 +146,15 @@ class MomaClient:
             content = body["choices"][0]["message"].get("content")
             if not isinstance(content, str) or not content.strip():
                 raise MomaServiceError(
-                    "MoMA 未返回最终回答，可能是 max_tokens 太小导致推理未完成。"
+                    "MoMA 未返回最终回答，可能是 max_tokens 太小导致推理未完成。",
+                    reason="invalid_response",
                 )
         except MomaServiceError:
             raise
         except (ValueError, KeyError, IndexError, TypeError) as exc:
-            raise MomaServiceError("MoMA 返回了无法解析的响应。") from exc
+            raise MomaServiceError(
+                "MoMA 返回了无法解析的响应。", reason="invalid_response"
+            ) from exc
         return MomaResult(
             content=content,
             model=body.get("model"),

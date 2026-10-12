@@ -7,7 +7,7 @@ import re
 
 from backend.app.integrations.amap_client import AmapClient
 from backend.app.integrations.errors import MapServiceError
-from backend.app.models.schemas import Itinerary
+from backend.app.models.schemas import DayPlan, Itinerary
 
 logger = logging.getLogger(__name__)
 
@@ -25,15 +25,25 @@ class ImageEnrichmentService:
         self._cache: dict[str, tuple[str, ...]] = {}
 
     def enrich(self, itinerary: Itinerary) -> Itinerary:
-        used_urls: set[str] = set()
+        used_urls = {
+            activity.image_url
+            for day in itinerary.days
+            for activity in day.activities
+            if activity.image_url
+        }
         for day in itinerary.days:
-            for activity in day.activities:
-                if not self._is_spot(activity) or activity.image_url:
-                    continue
-                activity.image_url = self._find_image(activity.poi_id, used_urls)
-                if activity.image_url:
-                    used_urls.add(activity.image_url)
+            self.enrich_day(day, used_urls=used_urls)
         return itinerary
+
+    def enrich_day(self, day: DayPlan, *, used_urls: set[str] | None = None) -> None:
+        used_urls = used_urls if used_urls is not None else set()
+        used_urls.update(activity.image_url for activity in day.activities if activity.image_url)
+        for activity in day.activities:
+            if not self._is_spot(activity) or activity.image_url:
+                continue
+            activity.image_url = self._find_image(activity.poi_id, used_urls)
+            if activity.image_url:
+                used_urls.add(activity.image_url)
 
     @staticmethod
     def _is_spot(activity: object) -> bool:

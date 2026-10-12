@@ -188,6 +188,13 @@ class TripVersionsResponse(BaseModel):
     items: list[TripVersionSummary]
 
 
+class TripRestoreRequest(BaseModel):
+    """Restore an immutable historical snapshot as a new current version."""
+
+    version: int = Field(strict=True, ge=1)
+    expected_version: int = Field(strict=True, ge=1)
+
+
 class TripEditRequest(BaseModel):
     """单日编辑的契约基础；编辑算法由成员 B 实现。"""
 

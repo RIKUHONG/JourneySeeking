@@ -59,6 +59,25 @@ def test_enriches_exact_pois_and_route_without_mutating_input():
     assert second.route_from_previous.duration_seconds == 600
 
 
+def test_does_not_create_routes_across_day_boundaries():
+    west_lake = Place("poi-west", "西湖", "杭州西湖区", Coordinates(120.1, 30.2))
+    lingyin = Place("poi-lingyin", "灵隐寺", "杭州西湖区", Coordinates(120.2, 30.3))
+    yuewang = Place("poi-yuewang", "岳王庙", "杭州西湖区", Coordinates(120.3, 30.4))
+    service = MockMapService(
+        places=[west_lake, lingyin, yuewang],
+        routes={(west_lake.coordinates, lingyin.coordinates, "driving"): Route(2500, 600)},
+    )
+    original = itinerary("西湖", "灵隐寺")
+    original.days[1].activities = [
+        Activity(time="09:00", name="岳王庙", description="游览", estimated_cost=0)
+    ]
+
+    enriched = MapEnrichmentService(service).enrich(original)
+
+    assert enriched.days[0].activities[1].route_status == "verified"
+    assert enriched.days[1].activities[0].route_status == "not_attempted"
+
+
 def test_matches_unique_suffix_normalized_poi_and_records_metrics():
     service = MapEnrichmentService(
         MockMapService(

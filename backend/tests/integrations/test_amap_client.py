@@ -99,7 +99,9 @@ def test_search_pois_keeps_legacy_results_without_region_metadata(config):
             },
         )
 
-    assert client(config, handler).search_pois("西湖", city="杭州", limit=5)[0].provider_id == "poi1"
+    assert (
+        client(config, handler).search_pois("西湖", city="杭州", limit=5)[0].provider_id == "poi1"
+    )
 
 
 def test_get_poi_photo_reads_first_detail_photo(config):
@@ -107,12 +109,18 @@ def test_get_poi_photo_reads_first_detail_photo(config):
         assert request.url.path == "/v3/place/detail"
         assert request.url.params["id"] == "poi1"
         assert request.url.params["extensions"] == "all"
-        return httpx.Response(200, json={
-            "status": "1",
-            "pois": [{"id": "poi1", "photos": [
-                {"title": "景点", "url": "https://example.test/poi1.jpg"}
-            ]}],
-        })
+        return httpx.Response(
+            200,
+            json={
+                "status": "1",
+                "pois": [
+                    {
+                        "id": "poi1",
+                        "photos": [{"title": "景点", "url": "https://example.test/poi1.jpg"}],
+                    }
+                ],
+            },
+        )
 
     assert client(config, handler).get_poi_photo("poi1") == "https://example.test/poi1.jpg"
 

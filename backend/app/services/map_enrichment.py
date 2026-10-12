@@ -242,36 +242,40 @@ class MapEnrichmentService:
         route_eligible = 0
         route_verified = 0
         route_unavailable = 0
-        for previous, current in pairwise(activities):
-            if previous.poi_status != "verified" or current.poi_status != "verified":
-                continue
-            if previous.longitude is None or previous.latitude is None:
-                current.route_status = "missing_coordinates"
-                continue
-            if current.longitude is None or current.latitude is None:
-                current.route_status = "missing_coordinates"
-                continue
-            route_eligible += 1
-            try:
-                origin = Coordinates(previous.longitude, previous.latitude)
-                destination = Coordinates(current.longitude, current.latitude)
-                key = route_cache_key(origin, destination, mode=mode)  # type: ignore[arg-type]
-                route = self._cached(key)
-                if route is None:
-                    route = self.map_service.plan_route(
-                        origin,
-                        destination,
-                        mode=mode,  # type: ignore[arg-type]
-                    )
-                    self._store(key, route, ttl_seconds=self.route_ttl_seconds)
-            except MapServiceError:
-                current.route_status = "unavailable"
-                service_unavailable = True
-                route_unavailable += 1
-                continue
-            self._apply_route(current, route, mode)
-            routes_available = True
-            route_verified += 1
+        # Routes are intra-day only. Crossing a day boundary would create a
+        # misleading overnight route and would make the first activity of the
+        # next day fail the Critic's per-day provenance check.
+        for day in copied.days:
+            for previous, current in pairwise(day.activities):
+                if previous.poi_status != "verified" or current.poi_status != "verified":
+                    continue
+                if previous.longitude is None or previous.latitude is None:
+                    current.route_status = "missing_coordinates"
+                    continue
+                if current.longitude is None or current.latitude is None:
+                    current.route_status = "missing_coordinates"
+                    continue
+                route_eligible += 1
+                try:
+                    origin = Coordinates(previous.longitude, previous.latitude)
+                    destination = Coordinates(current.longitude, current.latitude)
+                    key = route_cache_key(origin, destination, mode=mode)  # type: ignore[arg-type]
+                    route = self._cached(key)
+                    if route is None:
+                        route = self.map_service.plan_route(
+                            origin,
+                            destination,
+                            mode=mode,  # type: ignore[arg-type]
+                        )
+                        self._store(key, route, ttl_seconds=self.route_ttl_seconds)
+                except MapServiceError:
+                    current.route_status = "unavailable"
+                    service_unavailable = True
+                    route_unavailable += 1
+                    continue
+                self._apply_route(current, route, mode)
+                routes_available = True
+                route_verified += 1
 
         verified_count = sum(activity.poi_status == "verified" for activity in activities)
         if service_unavailable and verified_count == 0:

@@ -60,6 +60,15 @@ def test_save_list_get_versions_update_and_delete(tmp_path: Path) -> None:
         assert updated.status_code == 200
         assert updated.json()["version"] == 2
 
+        restored = client.post(
+            f"/api/trip/{trip_id}/restore",
+            json={"version": 1, "expected_version": 2},
+        )
+        assert restored.status_code == 200
+        assert restored.json()["version"] == 3
+        assert restored.json()["summary"] == "杭州三日游"
+        assert client.get(f"/api/trip/{trip_id}/versions/2").json()["summary"] == "更新后的行程"
+
         conflict = client.post("/api/trip/save", json=updated_payload)
         assert conflict.status_code == 409
         assert conflict.json()["code"] == "TRIP_VERSION_CONFLICT"
@@ -69,6 +78,25 @@ def test_save_list_get_versions_update_and_delete(tmp_path: Path) -> None:
         missing = client.get(f"/api/trip/{trip_id}")
         assert missing.status_code == 404
         assert missing.json()["code"] == "TRIP_NOT_FOUND"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_restore_rejects_missing_snapshot_and_stale_current_version(tmp_path: Path) -> None:
+    client = client_for(tmp_path)
+    try:
+        created = client.post("/api/trip/save", json=payload()).json()
+        trip_id = created["trip_id"]
+        missing = client.post(
+            f"/api/trip/{trip_id}/restore",
+            json={"version": 99, "expected_version": 1},
+        )
+        assert missing.status_code == 404
+        conflict = client.post(
+            f"/api/trip/{trip_id}/restore",
+            json={"version": 1, "expected_version": 2},
+        )
+        assert conflict.status_code == 409
     finally:
         app.dependency_overrides.clear()
 

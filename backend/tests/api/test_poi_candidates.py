@@ -194,9 +194,7 @@ def test_real_chain_repairs_destination_and_duplicate_poi_before_weather_enrichm
         Generator(),
         MapEnrichmentService(MockMapService()),
         WeatherEnrichmentService(weather_service),
-    ).generate(
-        TripRequest(destination="杭州市", start_date="2026-10-01", end_date="2026-10-03")
-    )
+    ).generate(TripRequest(destination="杭州市", start_date="2026-10-01", end_date="2026-10-03"))
 
     assert result.destination == "杭州市"
     assert [activity.poi_id for activity in result.days[0].activities] == ["spot-1"]

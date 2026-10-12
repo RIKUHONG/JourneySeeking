@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Literal
 from uuid import uuid4
 
@@ -25,9 +27,15 @@ from .models.schemas import (
     TripExportFormat,
     TripListResponse,
     TripRequest,
+    TripRestoreRequest,
     TripSaveRequest,
     TripSession,
     TripVersionsResponse,
+)
+from .services.orchestration import (
+    CriticRejectedError,
+    OrchestrationError,
+    TripOrchestrator,
 )
 from .services.session_context import SessionError, SessionService
 from .services.trip_edit import MomaDayEditor, TripEditError, TripEditService
@@ -48,9 +56,11 @@ from .storage import (
 )
 
 app = FastAPI(title="MiliTravel API", version="0.1.0", description="Travel planning backend API")
+logger = logging.getLogger(__name__)
 _map_cache = MemoryCache(default_ttl_seconds=300)
 _trip_repository: SQLiteTripRepository | None = None
 _session_repository: SQLiteSessionRepository | None = None
+_knowledge_base = None
 
 
 def _request_id(request: Request) -> str:
@@ -63,13 +73,32 @@ def _request_id(request: Request) -> str:
 
 @app.middleware("http")
 async def attach_request_id(request: Request, call_next):
+    started = time.perf_counter()
     request.state.request_id = request.headers.get("X-Request-ID") or f"req_{uuid4().hex}"
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = request.state.request_id
-    content_type = response.headers.get("content-type", "")
-    if content_type.startswith("application/json") and "charset=" not in content_type.lower():
-        response.headers["content-type"] = "application/json; charset=utf-8"
-    return response
+    logger.info(
+        "request_started request_id=%s method=%s path=%s",
+        request.state.request_id,
+        request.method,
+        request.url.path,
+    )
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        response.headers["X-Request-ID"] = request.state.request_id
+        content_type = response.headers.get("content-type", "")
+        if content_type.startswith("application/json") and "charset=" not in content_type.lower():
+            response.headers["content-type"] = "application/json; charset=utf-8"
+        return response
+    finally:
+        logger.info(
+            "request_completed request_id=%s method=%s path=%s status=%s duration_ms=%.2f",
+            request.state.request_id,
+            request.method,
+            request.url.path,
+            status_code,
+            (time.perf_counter() - started) * 1000,
+        )
 
 
 def get_trip_service() -> TripService:
@@ -105,6 +134,29 @@ def get_trip_service() -> TripService:
     )
 
 
+def get_trip_orchestrator(
+    service: TripService = Depends(get_trip_service),  # noqa: B008
+) -> TripOrchestrator | TripService:
+    """Build the request path's bounded, observable planning pipeline."""
+    if not hasattr(service, "generate_base"):
+        # Keeps lightweight HTTP dependency stubs useful for contract tests.
+        return service
+    global _knowledge_base
+    from .config.settings import settings
+    from .knowledge import KnowledgeBaseError, load_default_knowledge_base
+
+    if _knowledge_base is None:
+        try:
+            _knowledge_base = load_default_knowledge_base()
+        except KnowledgeBaseError:
+            logger.warning("knowledge base unavailable; continuing without retrieval")
+    return TripOrchestrator(
+        service,
+        knowledge=_knowledge_base,
+        step_timeout_seconds=settings.effective_orchestration_step_timeout_seconds,
+    )
+
+
 def get_trip_repository() -> SQLiteTripRepository:
     global _trip_repository
     if _trip_repository is None:
@@ -120,6 +172,7 @@ def get_trip_edit_service(
     from .config.settings import settings
     from .integrations.amap_client import AmapClient
     from .integrations.moma_client import MomaClient
+    from .services.image_enrichment import ImageEnrichmentService
     from .services.poi_candidates import collect_candidate_pool
 
     map_client = AmapClient(config=settings)
@@ -127,6 +180,7 @@ def get_trip_edit_service(
         repository,
         MomaDayEditor(MomaClient()),
         candidate_provider=lambda destination: collect_candidate_pool(map_client, destination),
+        image_enricher=ImageEnrichmentService(map_client),
     )
 
 
@@ -154,6 +208,12 @@ def get_session_service(
 
 @app.exception_handler(RequestValidationError)
 async def request_validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    logger.warning(
+        "request_validation_failed request_id=%s path=%s fields=%s",
+        _request_id(request),
+        request.url.path,
+        [(error.get("loc"), error.get("type")) for error in exc.errors()],
+    )
     error_code = ErrorCode.INVALID_TRIP_REQUEST
     if request.url.path == "/api/trip/save":
         version_error = any(
@@ -176,6 +236,11 @@ async def request_validation_handler(request: Request, exc: RequestValidationErr
 
 @app.exception_handler(TripServiceError)
 async def trip_service_error_handler(request: Request, exc: TripServiceError) -> JSONResponse:
+    logger.warning(
+        "trip_service_failed request_id=%s code=%s",
+        _request_id(request),
+        exc.code,
+    )
     status = {
         "MOMA_TIMEOUT": 504,
         "MOMA_INVALID_RESPONSE": 502,
@@ -187,6 +252,15 @@ async def trip_service_error_handler(request: Request, exc: TripServiceError) ->
 
 @app.exception_handler(TripEditError)
 async def trip_edit_error_handler(request: Request, exc: TripEditError) -> JSONResponse:
+    logger.warning(
+        "trip_edit_failed request_id=%s path=%s error_type=%s code=%s reason=%s details=%s",
+        _request_id(request),
+        request.url.path,
+        type(exc).__name__,
+        exc.code,
+        getattr(exc, "reason", None),
+        getattr(exc, "details", []),
+    )
     status_code = {
         "INVALID_TRIP_REQUEST": 422,
         "MOMA_TIMEOUT": 504,
@@ -246,10 +320,39 @@ async def invalid_trip_cursor_handler(
 async def chat_provider_error_handler(request: Request, exc: MomaError) -> JSONResponse:
     """Keep raw chat-provider details out of the public response."""
 
+    logger.warning(
+        "moma_provider_failed request_id=%s error_type=%s reason=%s status_code=%s",
+        _request_id(request),
+        type(exc).__name__,
+        getattr(exc, "reason", None),
+        getattr(exc, "status_code", None),
+    )
+
     body = ErrorResponse(
         code=ErrorCode.INTERNAL_SERVER_ERROR,
         message="上游服务暂时不可用",
         request_id=_request_id(request),
+    )
+    return JSONResponse(status_code=502, content=body.model_dump(mode="json"))
+
+
+@app.exception_handler(OrchestrationError)
+async def orchestration_error_handler(request: Request, exc: OrchestrationError) -> JSONResponse:
+    try:
+        public_code = ErrorCode(exc.code)
+    except ValueError:
+        public_code = ErrorCode.INTERNAL_SERVER_ERROR
+    body = ErrorResponse(
+        code=public_code, message="行程编排暂时失败", request_id=_request_id(request)
+    )
+    logger.warning(
+        "orchestration_failed request_id=%s code=%s trace=%s findings=%s",
+        _request_id(request),
+        exc.code,
+        [(step.name, step.status.value, step.failure_category) for step in exc.trace],
+        [(finding.code, finding.path) for finding in exc.report.findings]
+        if isinstance(exc, CriticRejectedError)
+        else [],
     )
     return JSONResponse(status_code=502, content=body.model_dump(mode="json"))
 
@@ -283,10 +386,31 @@ def health() -> dict[str, str]:
 
 @app.post("/api/trip/generate", response_model=Itinerary, response_model_exclude_defaults=True)
 def generate_trip(
+    http_request: Request,
     request: TripRequest,
-    service: TripService = Depends(get_trip_service),  # noqa: B008
+    orchestrator: TripOrchestrator | TripService = Depends(get_trip_orchestrator),  # noqa: B008
 ) -> Itinerary:
-    return service.generate(request)
+    if not isinstance(orchestrator, TripOrchestrator):
+        return orchestrator.generate(request)
+    result = orchestrator.run(request)
+    logger.info(
+        "orchestration_completed request_id=%s steps=%s trace=%s poi_verified_rate=%s route_verified_rate=%s token_usage=%s",
+        _request_id(http_request),
+        len(result.trace),
+        [(step.name, step.status.value, round(step.duration_ms, 2)) for step in result.trace],
+        getattr(
+            getattr(orchestrator.trip_service.map_enricher, "last_metrics", None),
+            "poi_verified_rate",
+            None,
+        ),
+        getattr(
+            getattr(orchestrator.trip_service.map_enricher, "last_metrics", None),
+            "route_verified_rate",
+            None,
+        ),
+        getattr(orchestrator.trip_service.generator, "last_usage", {}),
+    )
+    return result.itinerary
 
 
 @app.post("/api/trip/save", response_model=Itinerary)
@@ -378,6 +502,19 @@ def get_trip_version(
     repository: SQLiteTripRepository = Depends(get_trip_repository),  # noqa: B008
 ) -> Itinerary:
     return repository.get_version(trip_id, version)
+
+
+@app.post("/api/trip/{trip_id}/restore", response_model=Itinerary)
+def restore_trip(
+    trip_id: str,
+    request: TripRestoreRequest,
+    repository: SQLiteTripRepository = Depends(get_trip_repository),  # noqa: B008
+) -> Itinerary:
+    return repository.restore_version(
+        trip_id,
+        request.version,
+        expected_version=request.expected_version,
+    )
 
 
 @app.get("/api/trip/{trip_id}/export")

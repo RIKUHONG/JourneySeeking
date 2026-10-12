@@ -247,6 +247,38 @@ class SQLiteTripRepository:
             )
         return stored
 
+    def restore_version(self, trip_id: str, version: int, *, expected_version: int) -> Itinerary:
+        with self._connection() as connection:
+            target = connection.execute(
+                "SELECT payload FROM trip_versions WHERE trip_id = ? AND version = ?",
+                (trip_id, version),
+            ).fetchone()
+            if target is None:
+                raise TripNotFoundError(f"{trip_id}@{version}")
+            timestamp = _now()
+            result = connection.execute(
+                """
+                UPDATE trips
+                SET current_version = current_version + 1, updated_at = ?
+                WHERE trip_id = ? AND current_version = ?
+                """,
+                (timestamp, trip_id, expected_version),
+            )
+            if result.rowcount != 1:
+                raise TripVersionConflictError(trip_id)
+            payload = Itinerary.model_validate(json.loads(target["payload"]))
+            stored = self._with_identity(payload, trip_id, expected_version + 1)
+            connection.execute(
+                "INSERT INTO trip_versions (trip_id, version, payload, created_at) VALUES (?, ?, ?, ?)",
+                (
+                    trip_id,
+                    expected_version + 1,
+                    json.dumps(stored.model_dump(mode="json"), ensure_ascii=False),
+                    timestamp,
+                ),
+            )
+        return stored
+
     def list_versions(self, trip_id: str) -> TripVersionsResponse:
         with self._connection() as connection:
             trip = connection.execute(

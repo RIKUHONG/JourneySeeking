@@ -176,6 +176,8 @@ POST   /api/trip/save
 GET    /api/trip
 GET    /api/trip/{trip_id}
 GET    /api/trip/{trip_id}/versions
+GET    /api/trip/{trip_id}/versions/{version}
+POST   /api/trip/{trip_id}/restore
 DELETE /api/trip/{trip_id}
 ```
 
@@ -209,6 +211,8 @@ DELETE /api/trip/{trip_id}
 - `GET /api/trip` 返回有界的 `TripListResponse`，按更新时间倒序；使用 `limit` 和不透明 `cursor` 分页时不得无限返回历史。cursor 由服务端编码，客户端不得解析或修改；分页依据 `(updated_at, trip_id)` 的 keyset 排序，不能使用暴露 offset 的实现。
 - `GET /api/trip/{trip_id}` 返回当前版本的完整 `Itinerary`。
 - `GET /api/trip/{trip_id}/versions` 返回 `TripVersionsResponse`；版本顺序和当前版本语义必须稳定。
+- `GET /api/trip/{trip_id}/versions/{version}` 返回指定的不可变行程快照。
+- `POST /api/trip/{trip_id}/restore` 将指定历史版本复制为新的当前版本，不删除任何历史版本。请求体为 `{ "version": 1, "expected_version": 3 }`；`expected_version` 必须等于恢复前的当前版本，否则返回 `TRIP_VERSION_CONFLICT`。
 - 删除成功后该行程及其版本不可再通过这些接口读取，重复读取返回 `TRIP_NOT_FOUND`。
 
 ### 单日编辑接口基础契约（P2-05 消费）

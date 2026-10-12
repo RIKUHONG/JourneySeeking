@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from backend.app.integrations.contracts import DailyForecast, WeatherService
+from backend.app.integrations.errors import WeatherServiceError
 from backend.app.models.schemas import Itinerary, WeatherInfo
 
 
@@ -23,10 +24,8 @@ class WeatherEnrichmentService:
     def enrich(self, itinerary: Itinerary) -> Itinerary:
         day_count = (itinerary.end_date - itinerary.start_date).days + 1
         try:
-            forecasts = self.weather_service.forecast(
-                itinerary.destination, days=min(day_count, 4)
-            )
-        except Exception as exc:
+            forecasts = self.weather_service.forecast(itinerary.destination, days=min(day_count, 4))
+        except WeatherServiceError as exc:
             # Weather is an optional enhancement: preserve the validated base itinerary.
             logger.warning("weather enrichment unavailable: %s", getattr(exc, "reason", exc))
             return itinerary

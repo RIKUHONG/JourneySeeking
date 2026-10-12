@@ -26,7 +26,7 @@ Critic 拒绝时抛出 `CriticRejectedError`，包含结构化 `CriticReport` �
 
 ## 限制与降级
 
-`max_steps` 限制总步骤数，`step_timeout_seconds` 检查每步耗时。当前实现使用同步 integration，因此超时是在步骤返回后判定并拒绝结果，不会强制终止正在执行的底层网络调用；各供应商客户端仍须配置自身网络超时。
+`max_steps` 限制总步骤数，`step_timeout_seconds` 检查每步耗时。生产路由默认从 MoMA、地图和天气客户端的超时及重试预算推导步骤上限，也可用 `ORCHESTRATION_STEP_TIMEOUT_SECONDS` 显式覆盖。当前实现使用同步 integration，因此超时是在步骤返回后判定并拒绝结果，不会强制终止正在执行的底层网络调用；各供应商客户端仍须配置自身网络超时。
 
 知识库缺失、检索失败或空命中不会阻塞基础生成。候选不足时生成器回退到非候选约束模式，并在轨迹中保留诊断。地图和天气仍遵循 P1 的可选补全降级规则。
 
