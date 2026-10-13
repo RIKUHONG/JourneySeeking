@@ -32,6 +32,7 @@ from .models.schemas import (
     TripSession,
     TripVersionsResponse,
 )
+from .services.langgraph_orchestration import LangGraphTripOrchestrator
 from .services.orchestration import (
     CriticRejectedError,
     OrchestrationError,
@@ -136,7 +137,7 @@ def get_trip_service() -> TripService:
 
 def get_trip_orchestrator(
     service: TripService = Depends(get_trip_service),  # noqa: B008
-) -> TripOrchestrator | TripService:
+) -> TripOrchestrator | LangGraphTripOrchestrator | TripService:
     """Build the request path's bounded, observable planning pipeline."""
     if not hasattr(service, "generate_base"):
         # Keeps lightweight HTTP dependency stubs useful for contract tests.
@@ -150,11 +151,13 @@ def get_trip_orchestrator(
             _knowledge_base = load_default_knowledge_base()
         except KnowledgeBaseError:
             logger.warning("knowledge base unavailable; continuing without retrieval")
-    return TripOrchestrator(
-        service,
-        knowledge=_knowledge_base,
-        step_timeout_seconds=settings.effective_orchestration_step_timeout_seconds,
-    )
+    orchestrator_kwargs = {
+        "knowledge": _knowledge_base,
+        "step_timeout_seconds": settings.effective_orchestration_step_timeout_seconds,
+    }
+    if settings.agent_runtime == "langgraph":
+        return LangGraphTripOrchestrator(service, **orchestrator_kwargs)
+    return TripOrchestrator(service, **orchestrator_kwargs)
 
 
 def get_trip_repository() -> SQLiteTripRepository:
@@ -388,11 +391,16 @@ def health() -> dict[str, str]:
 def generate_trip(
     http_request: Request,
     request: TripRequest,
-    orchestrator: TripOrchestrator | TripService = Depends(get_trip_orchestrator),  # noqa: B008
+    orchestrator: TripOrchestrator | LangGraphTripOrchestrator | TripService = Depends(  # noqa: B008
+        get_trip_orchestrator
+    ),
 ) -> Itinerary:
-    if not isinstance(orchestrator, TripOrchestrator):
+    if not isinstance(orchestrator, (TripOrchestrator, LangGraphTripOrchestrator)):
         return orchestrator.generate(request)
-    result = orchestrator.run(request)
+    if isinstance(orchestrator, LangGraphTripOrchestrator):
+        result = orchestrator.run(request, request_id=_request_id(http_request))
+    else:
+        result = orchestrator.run(request)
     logger.info(
         "orchestration_completed request_id=%s steps=%s trace=%s poi_verified_rate=%s route_verified_rate=%s token_usage=%s",
         _request_id(http_request),

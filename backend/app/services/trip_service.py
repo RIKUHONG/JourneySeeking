@@ -18,7 +18,15 @@ logger = logging.getLogger(__name__)
 
 
 class ItineraryGenerator(Protocol):
-    def generate(self, request: TripRequest, *, knowledge_chunks: Sequence[Any] = ()) -> str: ...
+    def generate(
+        self,
+        request: TripRequest,
+        *,
+        knowledge_chunks: Sequence[Any] = (),
+        candidate_pool: Any = None,
+        planning_context: dict[str, Any] | None = None,
+        candidate_diagnostics: Any = None,
+    ) -> str: ...
 
 
 class TripServiceError(Exception):
@@ -64,14 +72,24 @@ class TripService:
         return self.enrich_images(itinerary)
 
     def generate_base(
-        self, request: TripRequest, *, knowledge_chunks: Sequence[Any] = ()
+        self,
+        request: TripRequest,
+        *,
+        knowledge_chunks: Sequence[Any] = (),
+        candidate_pool: Any = None,
+        planning_context: dict[str, Any] | None = None,
+        candidate_diagnostics: Any = None,
     ) -> Itinerary:
         """Generate and validate the base itinerary without optional enrichments."""
         try:
+            generator_kwargs: dict[str, Any] = {}
             if knowledge_chunks:
-                content = self.generator.generate(request, knowledge_chunks=knowledge_chunks)
-            else:
-                content = self.generator.generate(request)
+                generator_kwargs["knowledge_chunks"] = knowledge_chunks
+            if candidate_pool is not None or planning_context is not None:
+                generator_kwargs["candidate_pool"] = candidate_pool
+                generator_kwargs["planning_context"] = planning_context
+                generator_kwargs["candidate_diagnostics"] = candidate_diagnostics
+            content = self.generator.generate(request, **generator_kwargs)
         except TimeoutError as exc:
             raise MomaTimeoutError() from exc
         except Exception as exc:

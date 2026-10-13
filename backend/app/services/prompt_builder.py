@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 
@@ -15,6 +15,7 @@ class PromptBuilder:
         request: Any,
         candidate_pool: Any | None = None,
         knowledge_chunks: Sequence[Any] = (),
+        planning_context: Mapping[str, Any] | None = None,
     ) -> list[dict[str, str]]:
         return [
             {
@@ -27,7 +28,9 @@ class PromptBuilder:
             },
             {
                 "role": "user",
-                "content": self._build_user_prompt(request, candidate_pool, knowledge_chunks),
+                "content": self._build_user_prompt(
+                    request, candidate_pool, knowledge_chunks, planning_context
+                ),
             },
         ]
 
@@ -36,6 +39,7 @@ class PromptBuilder:
         request: Any,
         candidate_pool: Any | None = None,
         knowledge_chunks: Sequence[Any] = (),
+        planning_context: Mapping[str, Any] | None = None,
     ) -> str:
         trip_context = {
             "destination": self._value(request, "destination"),
@@ -73,6 +77,24 @@ class PromptBuilder:
                 + json.dumps(knowledge_payload, ensure_ascii=False)
             )
 
+        weather_text = ""
+        critic_text = ""
+        if planning_context:
+            weather_context = planning_context.get("weather_context", {})
+            planning_status = planning_context.get("planning_context_status", {})
+            weather_text = (
+                "生成前天气证据（按日期匹配；unknown 不代表晴天，不能补写天气事实）：\n"
+                + json.dumps(weather_context, ensure_ascii=False, default=str)
+                + "\n生成前证据状态：\n"
+                + json.dumps(planning_status, ensure_ascii=False, default=str)
+            )
+            critic_findings = planning_context.get("critic_findings", ())
+            if critic_findings:
+                critic_text = (
+                    "上一次 Critic 发现的问题（仅用于定向修复，不得改变用户硬约束）：\n"
+                    + json.dumps(critic_findings, ensure_ascii=False, default=str)
+                )
+
         return "\n".join(
             [
                 "请根据以下旅行需求生成第一版结构化行程。",
@@ -90,6 +112,8 @@ class PromptBuilder:
                 f"- special_notes: {trip_context['special_notes']}",
                 candidate_text,
                 knowledge_text,
+                weather_text,
+                critic_text,
                 "JSON 顶层结构必须完全匹配：",
                 self._json_contract(),
                 (

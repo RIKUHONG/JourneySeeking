@@ -12,6 +12,8 @@ from .prompt_builder import PromptBuilder
 
 logger = logging.getLogger(__name__)
 
+_AUTO_CANDIDATE_POOL = object()
+
 
 @dataclass(frozen=True)
 class ItineraryGenerationError(RuntimeError):
@@ -53,12 +55,23 @@ class ItineraryGenerator:
         self.last_usage: Mapping[str, Any] = {}
         self.last_provider_request_id: str | None = None
 
-    def generate(self, request: Any, *, knowledge_chunks: Sequence[Any] = ()) -> str:
+    def generate(
+        self,
+        request: Any,
+        *,
+        knowledge_chunks: Sequence[Any] = (),
+        candidate_pool: Any = _AUTO_CANDIDATE_POOL,
+        planning_context: Mapping[str, Any] | None = None,
+        candidate_diagnostics: Any = _AUTO_CANDIDATE_POOL,
+    ) -> str:
         """Return normalized JSON text for a trip request."""
-        candidate_pool = (
-            self.candidate_provider(request) if self.candidate_provider is not None else None
-        )
-        self.last_candidate_diagnostics = candidate_pool
+        if candidate_pool is _AUTO_CANDIDATE_POOL:
+            candidate_pool = (
+                self.candidate_provider(request) if self.candidate_provider is not None else None
+            )
+            self.last_candidate_diagnostics = candidate_pool
+        elif candidate_diagnostics is not _AUTO_CANDIDATE_POOL:
+            self.last_candidate_diagnostics = candidate_diagnostics
         # An unavailable or below-threshold map search must not turn the
         # optional candidate constraint into a hard failure for the base
         # itinerary. The pool remains available to callers for diagnostics.
@@ -69,7 +82,12 @@ class ItineraryGenerator:
             candidate_pool = None
         self.last_candidate_pool = candidate_pool
         self.last_knowledge_chunks = tuple(knowledge_chunks)
-        messages = self.prompt_builder.build_messages(request, candidate_pool, knowledge_chunks)
+        messages = self.prompt_builder.build_messages(
+            request,
+            candidate_pool,
+            knowledge_chunks,
+            planning_context,
+        )
         last_failure = "MoMA 未返回可用的结构化行程。"
         last_raw_content = ""
 
