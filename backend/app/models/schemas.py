@@ -85,7 +85,7 @@ class RouteInfo(BaseModel):
 class WeatherInfo(BaseModel):
     """按行程日期对齐的天气补充信息。
 
-    ``unknown`` 只表示该日期没有可用预报（例如超过供应商的四天范围），
+    ``unknown`` 只表示该日期没有可用预报（例如超过供应商的预报范围），
     不应被解释为晴天或其他具体天气。天气服务整体失败时，调用方应保留
     基础行程并将 ``DayPlan.weather`` 留为 ``None``。
     """

@@ -12,7 +12,7 @@ if (-not (Test-Path backend/.env)) { Copy-Item backend/.env.example backend/.env
 uvicorn backend.app.main:app --reload
 ```
 
-`/health` 检查进程，`/docs` 展示当前 OpenAPI。真实 MoMA 调用需要 `MOMA_API_KEY`；地图和天气客户端分别使用 `AMAP_API_KEY`、`WEATHER_API_KEY`，都不是启动硬依赖。其他设置以 `backend/.env.example` 和 `backend/app/config/settings.py` 为准。
+`/health` 检查进程，`/docs` 展示当前 OpenAPI。真实 MoMA 调用需要 `MOMA_API_KEY`；地图及天气城市坐标解析使用 `AMAP_API_KEY`，Open-Meteo 预报本身不需要天气密钥。密钥不是启动硬依赖；缺少高德 Key 时城市天气按契约降级。其他设置以 `backend/.env.example` 和 `backend/app/config/settings.py` 为准。
 
 ## 验证
 
@@ -28,7 +28,7 @@ python -m ruff format --check .
 
 P2 的 A/B/C 分工、指定分支、依赖和验收见 [P2 Issue 清单](p2-issues.md)。各成员按依赖从合并后的最新 `main` 建对应独立分支，关联 PR，至少一名非作者评审。修改共享字段时先更新 [API 契约](api-contract.md) 与契约测试，再修改模型、服务、前端。存储迁移、环境变量、降级和回滚行为须写在 PR 中。
 
-`MapService`、`WeatherService` 的接口及错误类型在 `backend/app/integrations/`；`MapEnrichmentService` 和 `WeatherEnrichmentService` 已进入 P2 生成链路。P2 普通请求默认查询 3 天，适配器技术上限为 4 天，7 天游的其余日期为未知。P3 要求将天气查询提升到基础生成前，并把业务窗口扩展到请求范围内最多 7 天；如果供应商单次窗口不足，adapter 负责分片合并，缺失日期仍为 `unknown`。P2 不应重复建立基础设施，P3 应先扩展现有 integration 契约再接入 LangGraph。`/api/chat` 仍是普通消息转发，不保存行程状态。
+`MapService`、`WeatherService` 的接口及错误类型在 `backend/app/integrations/`；`MapEnrichmentService` 和 `WeatherEnrichmentService` 已进入生成链路。P2 历史天气适配器来自高德，技术上限为 4 天。P3-02 的 Open-Meteo 适配器使用请求日期范围（最多 7 天），城市坐标由高德地理编码提供；缺失日期仍为 `unknown`。LangGraph 在基础生成前读取天气，legacy 仍在生成后查询，但两条路径的天气事实均来自 Open-Meteo。`/api/chat` 仍是普通消息转发，不保存行程状态。
 
 P2-02 的城市解析和候选池位于 `backend/app/services/city_resolution.py` 与 `poi_candidates.py`。候选池默认要求景点、餐饮、住宿各至少一个可信候选；候选缺少 ID/坐标、显式城市不匹配、分类不足或地图失败时记录诊断并让生成链路回退到基础行程。生成器保留 `last_candidate_diagnostics` 供后续编排读取，但只把达到门槛的池放入模型约束和 POI ID 校验。新增候选规则应先补充 `backend/tests/api/test_city_candidates.py`，不能在测试中使用真实 Key。
 
@@ -42,7 +42,7 @@ P2-06 会话继续使用 `TRIP_DATABASE_PATH` 指向的 SQLite 文件，并在�
 
 1. 先冻结 [P3 Agent 化规划](p3-plan.md) 中的 LangGraph 状态 Schema、节点契约和回滚开关；不先改公共 HTTP 字段。
 2. 将城市解析后的 RAG、POI、天气节点并行化，在 `join_planning_context` 汇聚后再生成；天气节点覆盖最多 7 个日历日。
-3. 使用供应商 fake 验证 3/4/7 天、部分覆盖、超时、重复日期和跨城市数据；验证天气证据确实进入基础生成 Prompt。
+3. 使用供应商 fake 验证 3/4/7 天、部分覆盖、超时、重复日期和跨城市数据；验证 Open-Meteo 天气证据确实进入基础生成 Prompt。
 4. 再做 Prompt 版本化、MCP 工具 Schema 和 RAG 排序优化。每一步都补充离线测试和脱敏 trace。
 
 P3 的 LangGraph checkpoint 不是行程版本库；SQLite 仍负责业务事实、版本冲突和会话引用。需要回滚时设置 `AGENT_RUNTIME=legacy`，不能删除已有行程数据。

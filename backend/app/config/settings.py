@@ -37,8 +37,7 @@ class Settings:
     amap_base_url: str = os.getenv("AMAP_BASE_URL", "https://restapi.amap.com/v3")
     amap_timeout_seconds: float = float(os.getenv("AMAP_TIMEOUT_SECONDS", "10"))
     amap_max_retries: int = int(os.getenv("AMAP_MAX_RETRIES", "2"))
-    weather_api_key: str = os.getenv("WEATHER_API_KEY", "").strip()
-    weather_base_url: str = os.getenv("WEATHER_BASE_URL", "https://restapi.amap.com/v3")
+    weather_base_url: str = os.getenv("WEATHER_BASE_URL", "https://api.open-meteo.com/v1")
     weather_timeout_seconds: float = float(os.getenv("WEATHER_TIMEOUT_SECONDS", "10"))
     weather_max_retries: int = int(os.getenv("WEATHER_MAX_RETRIES", "2"))
 
@@ -76,7 +75,7 @@ class Settings:
     def validate_weather(self) -> None:
         self._validate_external(
             "WEATHER",
-            self.weather_api_key,
+            None,
             self.weather_base_url,
             self.weather_timeout_seconds,
             self.weather_max_retries,
@@ -84,9 +83,9 @@ class Settings:
 
     @staticmethod
     def _validate_external(
-        prefix: str, api_key: str, base_url: str, timeout_seconds: float, max_retries: int
+        prefix: str, api_key: str | None, base_url: str, timeout_seconds: float, max_retries: int
     ) -> None:
-        if not api_key:
+        if api_key is not None and not api_key:
             raise ValueError(f"{prefix}_API_KEY 未设置。")
         if not base_url.startswith(("http://", "https://")):
             raise ValueError(f"{prefix}_BASE_URL 必须是完整的 http(s) URL。")

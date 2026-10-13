@@ -34,6 +34,8 @@ class DailyForecast:
     condition: str
     low_celsius: float
     high_celsius: float
+    source: str | None = None
+    fetched_at: str | None = None
 
 
 TravelMode = Literal["driving", "walking"]
@@ -53,3 +55,7 @@ class MapService(Protocol):
 @runtime_checkable
 class WeatherService(Protocol):
     def forecast(self, city: str, *, days: int = 3) -> list[DailyForecast]: ...
+
+    def forecast_window(
+        self, city: str, *, start_date: date, end_date: date
+    ) -> list[DailyForecast]: ...

@@ -18,6 +18,40 @@ def client(config, handler):
     return AmapClient(config, httpx.Client(transport=httpx.MockTransport(handler)))
 
 
+def test_geocode_city_ignores_other_city_and_invalid_coordinates(config):
+    def handler(request):
+        assert request.url.path == "/v3/geocode/geo"
+        assert request.url.params["address"] == "杭州"
+        assert request.url.params["city"] == "杭州"
+        return httpx.Response(
+            200,
+            json={
+                "status": "1",
+                "geocodes": [
+                    {"city": "北京市", "location": "116.4,39.9"},
+                    {"city": "杭州市", "location": "invalid"},
+                    {"city": "杭州市", "location": "120.16,30.29"},
+                ],
+            },
+        )
+
+    assert client(config, handler).geocode_city("杭州") == Coordinates(120.16, 30.29)
+
+
+def test_geocode_city_rejects_cross_city_only_response(config):
+    service = client(
+        config,
+        lambda request: httpx.Response(
+            200,
+            json={"status": "1", "geocodes": [{"city": "北京市", "location": "116.4,39.9"}]},
+        ),
+    )
+
+    with pytest.raises(MapServiceError) as exc_info:
+        service.geocode_city("杭州")
+    assert exc_info.value.reason is FailureReason.INVALID_RESPONSE
+
+
 def test_search_pois_maps_reference_project_fields(config):
     def handler(request):
         assert request.url.path == "/v3/place/text"
