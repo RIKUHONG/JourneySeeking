@@ -112,7 +112,7 @@ def test_chat_uses_generation_safe_default_max_tokens(settings):
 
     MomaClient(config=settings, session=session).chat([])
 
-    assert session.calls[0][1]["json"]["max_tokens"] == 8192
+    assert session.calls[0][1]["json"]["max_tokens"] == 16384
 
 
 def test_chat_retries_network_errors_and_returns_later_success(settings, monkeypatch):

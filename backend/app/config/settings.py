@@ -17,6 +17,7 @@ if load_dotenv is not None:
 
 @dataclass(frozen=True)
 class Settings:
+    agent_runtime: str = os.getenv("AGENT_RUNTIME", "legacy").strip().lower()
     trip_database_path: str = os.getenv("TRIP_DATABASE_PATH", "backend/data/trips.sqlite3")
     session_ttl_seconds: int = int(os.getenv("SESSION_TTL_SECONDS", str(7 * 24 * 60 * 60)))
     session_recent_turn_limit: int = int(os.getenv("SESSION_RECENT_TURN_LIMIT", "5"))
@@ -28,7 +29,7 @@ class Settings:
     moma_api_key: str = os.getenv("MOMA_API_KEY", "").strip()
     moma_timeout_seconds: float = float(os.getenv("MOMA_TIMEOUT_SECONDS", "180"))
     moma_max_retries: int = int(os.getenv("MOMA_MAX_RETRIES", "1"))
-    moma_max_tokens: int = int(os.getenv("MOMA_MAX_TOKENS", "8192"))
+    moma_max_tokens: int = int(os.getenv("MOMA_MAX_TOKENS", "16384"))
     orchestration_step_timeout_seconds: float = float(
         os.getenv("ORCHESTRATION_STEP_TIMEOUT_SECONDS", "0")
     )

@@ -8,7 +8,6 @@ from backend.app.integrations.contracts import DailyForecast, WeatherService
 from backend.app.integrations.errors import WeatherServiceError
 from backend.app.models.schemas import Itinerary, WeatherInfo
 
-
 logger = logging.getLogger(__name__)
 
 
