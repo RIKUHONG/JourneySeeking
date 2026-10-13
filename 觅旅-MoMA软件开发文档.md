@@ -2,17 +2,17 @@
 
 ## 软件开发文档
 
-文档版本：V1.0  
-编制日期：2026-09-23  
+文档版本：V1.1（P3 设计增补）
+编制日期：2026-10-13
 项目类型：移动云杯参赛项目  
 参考项目：根目录下本地 `helloagents-trip-planner/`
 目标平台：移动云 MoMA
 
-## 当前阶段说明（2026-09-29）
+## 当前阶段说明（2026-10-13）
 
-本文档描述 V1.0 长期目标；功能清单、七周计划和比赛演示脚本不代表当前代码已实现。截至 2026-09-29 的本地 `main`（`6f76009`），仓库已有 P0 结构化行程生成，以及 P1 的候选 POI ID 校验、高德地点/路线补全、进程内地图缓存、逐日天气与轻量建议；地图和天气均已接入 `POST /api/trip/generate`。生成链路修复已合并，杭州真实生成样例见 `docs/fixtures/trip-generate-hangzhou-20260929.json`。独立的 `/api/weather/forecast`、前端、RAG、保存/历史、局部编辑、多轮会话、Agent 轨迹和导出仍未实现。`/api/chat` 仅转发原始 MoMA 消息。
+本文档描述长期产品目标和 P3 设计；功能清单、七周计划和比赛演示脚本不代表当前代码已实现。截至 2026-10-13，本地 `main` 已包含 P0/P1/P2 的结构化生成、候选 POI ID 校验、地图/路线与历史天气补全、RAG、有限编排、持久化、编辑、会话、前端和导出。P2 的历史生成链路仍是“基础生成后补全天气”，普通请求默认查询 3 天，旧适配器技术上限为 4 天，7 天游的其余日期为未知。P3 将通过 LangGraph 把 POI 搜索和最多 7 天天气查询前移到基础生成之前，并把天气证据作为 Planner 上下文；完整状态图见 `docs/p3-plan.md`。`/api/chat` 仍仅转发原始 MoMA 消息，不等同于行程会话。
 
-下一阶段按 `docs/p2-issues.md` 的差距对比和十个核心 Issue 推进：A 负责契约和存储；B 负责 RAG、编辑、编排和集成验收；C 负责城市候选、多轮会话、前端和导出。Redis adapter 由 C 负责、天气自动调度由 B 负责，均为独立条件任务。现行 HTTP 字段与错误码以 `docs/api-contract.md` 为准；本地运行与实际环境变量以 `README.md`、`backend/.env.example` 为准。下面第 20 节的七周安排保留为目标顺序，实际执行以 `docs/roadmap.md` 为准。
+P3 按 `docs/p3-plan.md` 推进：先冻结 LangGraph 状态图和天气证据契约，再实施天气前置与 7 天窗口，随后完成 Prompt 版本化、MCP 工具标准化和评测驱动的 RAG 增强。P2 文档保留为历史基线；现行 HTTP 字段与错误码以 `docs/api-contract.md` 为准，本地运行与环境变量以 `README.md`、`backend/.env.example` 为准。第 20 节的原七周计划是长期目标，不是完成记录。
 
 ---
 
@@ -330,7 +330,7 @@ frontend/
 | 长行程规划 | 高质量模型路由 | 多约束任务使用高质量模型 |
 | 多轮编辑 | 上下文管理 | 保存用户偏好、硬约束和行程版本 |
 | RAG 查询 | 模型协同 | Query Rewrite、Embedding、Rerank 分工 |
-| 工具选择 | Agent 编排 | 由总控 Agent 决定是否调用地图、天气和 POI |
+| 工具选择 | LangGraph + MCP 编排 | 由有界状态图决定 POI、天气和地图节点的调用时机；模型只能使用节点提供的工具结果 |
 | 主模型故障 | 自动降级 | 主模型 → 备用模型 → 规则流程 |
 | 成本优化 | 路由策略 | 简单任务不得默认调用高成本模型 |
 | 质量控制 | 多模型协作 | Planner 生成，Critic 校验 |
@@ -681,7 +681,7 @@ export_pdf
 
 ### 10.3 工具调用原则
 
-- 模型负责决定是否需要工具；
+- LangGraph 节点负责决定工具调用时机和是否继续；模型只能在节点提供的受控上下文中生成或选择结果；
 - 工具负责提供真实数据；
 - 业务代码负责关键计算和校验；
 - 工具参数必须经过 Schema 校验；
@@ -698,30 +698,29 @@ export_pdf
 ```text
 用户提交规划请求
   ↓
-Intent Agent 提取参数和约束
+LangGraph validate_request：校验参数和硬约束
   ↓
-Destination Agent 标准化城市并判断覆盖等级
+resolve_destination：标准化城市并判断覆盖等级
   ↓
-选择本地 RAG 或动态 POI 分支
+并行准备生成上下文
+  ├── retrieve_knowledge：带来源 RAG 片段
+  ├── search_poi_candidates：可信 POI 白名单
+  └── query_weather_7d：请求范围内最多 7 天按日天气
+  ↓ 汇聚并记录缺失/降级状态
+generate_base_itinerary：MoMA Planner 使用 POI + 天气证据
   ↓
-Retrieval Agent 检索攻略
+validate_structure：日期、预算、Schema、候选 ID
+  ├── 修复次数未超：定向修复后回到校验
+  └── 失败：稳定错误
   ↓
-POI Agent 获取并筛选真实候选
+权威天气回填 + 地图路线/图片补全
   ↓
-Weather Agent 查询天气
-  ↓
-Route Agent 计算区域和路线
-  ↓
-Budget Agent 计算预算
-  ↓
-MoMA 路由 Planner Model
-  ↓
-生成结构化 Itinerary
-  ↓
-Critic Agent 校验
+Critic 校验事实、预算、路线和约束
   ├── 通过：返回用户
-  └── 不通过：局部修复后再次校验
+  └── 不通过：有界修复后再次校验，超过上限则拒绝
 ```
+
+POI 搜索和天气查询是基础行程生成的前置证据，不再等到模型生成后才查询天气。天气供应商单次窗口不足 7 天时由 adapter 分片查询并按日期合并；没有同日数据仍是 `unknown`。
 
 ### 11.2 已覆盖城市分支
 
@@ -744,18 +743,45 @@ Planner Model
 ```text
 高德行政区解析
   ↓
-搜索景点、餐饮、酒店候选
+并行搜索景点、餐饮、酒店候选和最多 7 天天气
   ↓
 候选数量和城市归属校验
   ↓
-Planner 只输出候选 POI ID
+Planner 只输出候选 POI ID，并根据天气证据安排活动
   ↓
 后端根据 POI ID 回填真实字段
   ↓
 路线、天气、预算校验
 ```
 
-### 11.4 多轮编辑流程
+### 11.4 P3 LangGraph 状态图
+
+P3 的正式状态图、状态字段、节点输入输出和验收标准见 [P3 Agent 化规划](docs/p3-plan.md)。图的核心边界如下：
+
+```mermaid
+flowchart TD
+    START([START]) --> V[validate_request]
+    V --> C[resolve_destination]
+    C --> R[retrieve_knowledge]
+    C --> P[search_poi_candidates]
+    C --> W[query_weather_7d]
+    R --> J[join_planning_context]
+    P --> J
+    W --> J
+    J --> G[generate_base_itinerary]
+    G --> S[validate_structure]
+    S -->|修复次数未超| F[repair]
+    F --> S
+    S -->|通过| A[authoritative_weather]
+    A --> M[map_routes_and_images]
+    M --> K[critic_review]
+    K -->|通过| END([END])
+    K -->|拒绝| X([ERROR])
+```
+
+RAG、POI 和天气节点可以并行，但必须在 Planner 前汇聚。LangGraph 只负责状态转移和有限循环；业务 service 负责 Pydantic、来源、预算、版本和 Critic；MCP 负责白名单工具协议，不允许模型绕过这些校验。
+
+### 11.5 多轮编辑流程
 
 ```text
 用户编辑指令
@@ -898,10 +924,10 @@ DELETE /api/trip/{trip_id}
 
 ### 13.4 天气接口
 
-以下为目标接口，当前版本尚未提供。P1 天气任务需先评审其是否作为独立接口实现，以及预报天数、城市参数和缺失日期的响应契约。
+以下为目标接口示意；公共 `DayPlan.weather` 字段已经由当前生成接口承载。P3 需要把天气查询封装为 LangGraph 前置节点/MCP 工具，支持请求范围内最多 7 天；供应商单次窗口不足时由适配器拆分并合并，缺失日期保持 `unknown`。
 
 ```text
-GET /api/weather/forecast?city=厦门&start_date=2026-10-01&end_date=2026-10-05
+GET /api/weather/forecast?city=厦门&start_date=2026-10-01&end_date=2026-10-07
 ```
 
 ### 13.5 导出接口
@@ -1250,7 +1276,7 @@ ENVIRONMENT=production
 - [ ] 接入高德 POI、地图和天气；
 - [ ] 实现真实 POI 回填。
 
-当前状态：POI/路线与天气业务补全均已进入 `main`；高德预报客户端单次最多查询 4 天，没有同日预报的行程日期保持未知。P2 的 RAG、Agent、持久化、多轮编辑、前端和导出按 `docs/p2-issues.md` 拆分；此处的周计划不作为任务归属或完成证据。
+当前状态：P2 的 POI/路线与天气业务补全、RAG、有限编排、持久化、多轮编辑、前端和导出均已进入 `main`。P2 普通请求默认查询 3 天，高德预报客户端技术上限为 4 天，7 天游的其余日期保持未知；P3 目标是由 adapter 支持请求范围内最多 7 天，并在基础行程生成前提供天气上下文。P3 的 LangGraph、Prompt、MCP 和 RAG 增强按 `docs/p3-plan.md` 推进；此处的周计划不作为完成证据。
 
 ### 第 5 周：Agent 和上下文
 
@@ -1281,6 +1307,19 @@ ENVIRONMENT=production
 - [ ] 完成项目说明书和测试报告；
 - [ ] 准备现场演示和离线备用方案。
 
+### P3 阶段：状态图、天气前置与工具标准化
+
+P3 不再沿用“基础生成后查询天气”的目标链路，按以下顺序推进：
+
+1. 冻结 LangGraph `StateGraph`、状态字段、节点边界、修复上限和 legacy 回滚开关；
+2. 在基础生成前并行执行 RAG 检索、可信 POI 搜索和请求范围内最多 7 天的天气查询，再汇聚为 Planner 上下文；
+3. 让生成后只负责结构校验、天气权威回填、地图路线/图片补全和 Critic，不允许模型天气覆盖供应商事实；
+4. 建立生成/修复/编辑 Prompt registry，记录版本并用离线 fixture 比较结构通过率、天气适配率、token 和延迟；
+5. 为 POI、天气、RAG、路线建立 MCP Schema、白名单、超时、重试、来源和脱敏错误契约；
+6. 根据 RAG 评测结果决定 query 规范化、排序、混合召回或向量索引，未达基线不切换默认实现。
+
+P3 的详细状态图、节点契约和验收条件以 `docs/p3-plan.md` 为准。
+
 ---
 
 ## 21. 比赛演示方案
@@ -1290,18 +1329,17 @@ ENVIRONMENT=production
 1. 用户输入一条复杂的亲子旅行需求；
 2. 展示 Intent Agent 提取结构化约束；
 3. 展示 MoMA 为简单任务选择快速模型；
-4. 展示 RAG 检索和高德 POI 工具调用；
-5. 展示天气查询；
-6. 展示 MoMA 为复杂规划选择高质量模型；
-7. 展示 Planner Agent 生成结构化行程；
-8. 展示 Critic Agent 校验通过；
-9. 展示地图、天气和预算结果；
-10. 输入“第三天不要安排太多活动”；
-11. 展示上下文识别和局部重规划；
-12. 输入“明天下雨，调整户外活动”；
-13. 展示天气驱动的动态改行程；
-14. 模拟主模型失败，展示 MoMA 自动切换备用模型；
-15. 展示最终行程保存和 PDF 导出。
+4. 展示 MCP/RAG 检索和高德 POI 工具调用；
+5. 展示生成前的最多 7 天天气查询及其覆盖状态；
+6. 展示 LangGraph 汇聚 POI 与天气证据后，由 MoMA 选择模型并生成结构化行程；
+7. 展示权威天气回填、路线补全和 Planner/Critic 校验；
+8. 展示地图、天气和预算结果；
+9. 输入“第三天不要安排太多活动”；
+10. 展示上下文识别和局部重规划；
+11. 输入“明天下雨，调整户外活动”；
+12. 展示天气驱动的动态改行程；
+13. 模拟主模型失败，展示 MoMA 自动切换备用模型；
+14. 展示最终行程保存和 PDF 导出。
 
 ### 21.2 必须体现的 MoMA 价值
 
@@ -1352,6 +1390,17 @@ ENVIRONMENT=production
 - [ ] 上下文不会跨用户串线；
 - [ ] Agent 不会无限循环调用工具。
 
+### 22.4 P3 状态图与天气前置验收
+
+- [ ] LangGraph 状态图能记录并回放一次请求的节点路径；
+- [ ] RAG、可信 POI 搜索和最多 7 天天气查询在基础生成前完成或明确降级；
+- [ ] Planner 使用带来源的 POI/天气证据，不能生成未在候选池中的 POI ID；
+- [ ] 3、4、7 天请求按日期映射天气，缺失日期为 `unknown`，不复制相邻日期；
+- [ ] 生成后天气字段由供应商证据权威回填，模型自报事实不能覆盖；
+- [ ] Prompt、图和 MCP 工具均带版本，日志不包含完整 Prompt、密钥或供应商原始响应；
+- [ ] 结构校验、Critic、工具调用和修复循环都有明确上限；
+- [ ] `AGENT_RUNTIME=legacy` 可以回滚而不删除 SQLite 行程版本和会话数据。
+
 ---
 
 ## 23. 风险与应对
@@ -1380,13 +1429,13 @@ ENVIRONMENT=production
   ↓
 意图识别和约束提取
   ↓
-MoMA 智能路由
+LangGraph 状态图与 MoMA 智能路由
   ↓
-专业 Agent 协作
+RAG、可信 POI 和最多 7 天天气前置证据
   ↓
-地图、天气、POI 和 RAG 工具调用
+MCP 标准化工具调用
   ↓
-结构化行程生成
+Planner 生成结构化行程
   ↓
 事实、预算、路线和约束校验
   ↓
