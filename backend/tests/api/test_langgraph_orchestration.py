@@ -6,6 +6,7 @@ from datetime import date, timedelta
 import pytest
 
 from backend.app.integrations.contracts import DailyForecast
+from backend.app.integrations.errors import FailureReason, WeatherServiceError
 from backend.app.knowledge import KnowledgeChunk
 from backend.app.models.schemas import TripRequest
 from backend.app.services.langgraph_orchestration import LangGraphTripOrchestrator
@@ -112,8 +113,53 @@ class Weather:
 
 
 class BrokenWeather:
-    def forecast(self, city: str, *, days: int = 3):
-        raise TimeoutError("provider timeout")
+    def forecast_window(self, city, *, start_date, end_date):
+        raise WeatherServiceError(FailureReason.TIMEOUT)
+
+
+class PartialWeather:
+    source = "Open-Meteo"
+
+    def forecast_window(self, city, *, start_date, end_date):
+        return [
+            DailyForecast(
+                date=start_date,
+                condition="晴",
+                low_celsius=15,
+                high_celsius=24,
+                source=self.source,
+                fetched_at="2026-10-13T08:00:00+00:00",
+            ),
+            DailyForecast(
+                date=end_date,
+                condition="小雨",
+                low_celsius=16,
+                high_celsius=23,
+                source=self.source,
+                fetched_at="2026-10-13T08:00:00+00:00",
+            ),
+        ]
+
+
+class WindowWeather:
+    source = "Open-Meteo"
+
+    def __init__(self):
+        self.calls = []
+
+    def forecast_window(self, city, *, start_date, end_date):
+        self.calls.append((city, start_date, end_date))
+        return [
+            DailyForecast(
+                date=start_date + timedelta(days=offset),
+                condition="小雨" if offset == 2 else "晴",
+                low_celsius=15,
+                high_celsius=24,
+                source="Open-Meteo",
+                fetched_at="2026-10-13T08:00:00+00:00",
+            )
+            for offset in range((end_date - start_date).days + 1)
+        ]
 
 
 def make_orchestrator(generator, *, weather=None, knowledge=None, **kwargs):
@@ -156,6 +202,137 @@ def test_weather_context_covers_a_seven_day_request_by_date() -> None:
     assert len(generator.contexts[0]["weather_context"]) == 7
     assert len(result.itinerary.days) == 7
     assert all(day.weather is not None for day in result.itinerary.days)
+
+
+def test_open_meteo_window_reaches_planner_and_authoritative_weather() -> None:
+    trip_request = TripRequest(
+        destination="杭州",
+        start_date=date(2026, 10, 14),
+        end_date=date(2026, 10, 20),
+    )
+    generator = RecordingGenerator([payload(trip_request, total=7)])
+    weather = WindowWeather()
+    orchestrator = make_orchestrator(generator, weather=weather)
+
+    result = orchestrator.run(trip_request)
+
+    assert weather.calls == [("杭州", trip_request.start_date, trip_request.end_date)]
+    context = generator.contexts[0]["weather_context"]
+    assert len(context) == 7
+    assert context["2026-10-16"]["condition"] == "小雨"
+    assert context["2026-10-16"]["source"] == "Open-Meteo"
+    assert all(day.weather.source == "Open-Meteo" for day in result.itinerary.days)
+    assert result.itinerary.days[2].weather_advice
+    assert result.itinerary.days[2].weather.fetched_at == "2026-10-13T08:00:00+00:00"
+
+
+def test_partial_weather_reaches_planner_as_unknown_and_degrades() -> None:
+    trip_request = TripRequest(
+        destination="杭州",
+        start_date=date(2026, 10, 10),
+        end_date=date(2026, 10, 16),
+    )
+    generator = RecordingGenerator([payload(trip_request, total=7)])
+    orchestrator = make_orchestrator(generator, weather=PartialWeather())
+
+    result = orchestrator.run(trip_request)
+
+    context = generator.contexts[0]["weather_context"]
+    assert [item["status"] for item in context.values()] == [
+        "available",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "available",
+    ]
+    weather_status = next(step for step in result.trace if step.name == "query_weather_7d")
+    assert weather_status.status.value == "degraded"
+    assert weather_status.failure_category == "partial_coverage"
+    assert result.itinerary.days[1].weather.status == "unknown"
+    assert result.itinerary.days[1].weather.condition is None
+    assert result.itinerary.days[1].weather_advice == []
+
+
+def test_all_unknown_weather_uses_degraded_planning_context() -> None:
+    trip_request = request()
+    generator = RecordingGenerator([payload(trip_request)])
+
+    class EmptyWeather:
+        def forecast_window(self, city, *, start_date, end_date):
+            return []
+
+    result = make_orchestrator(generator, weather=EmptyWeather()).run(trip_request)
+
+    assert generator.contexts[0]["planning_context_status"]["weather"] == "degraded"
+    assert all(
+        item == {"status": "unknown"} for item in generator.contexts[0]["weather_context"].values()
+    )
+    assert all(
+        day.weather.status == "unknown" and not day.weather_advice for day in result.itinerary.days
+    )
+
+
+def test_weather_timeout_is_redacted_to_stable_failure_reason() -> None:
+    generator = RecordingGenerator([payload(request())])
+    orchestrator = make_orchestrator(generator, weather=BrokenWeather())
+
+    result = orchestrator.run(request())
+
+    weather_status = next(step for step in result.trace if step.name == "query_weather_7d")
+    assert weather_status.status.value == "degraded"
+    assert weather_status.failure_category == "timeout"
+    assert all(day.weather.status == "unknown" for day in result.itinerary.days)
+
+
+def test_model_weather_claim_is_replaced_by_authoritative_evidence() -> None:
+    trip_request = request()
+    data = payload(trip_request)
+    for day in data["days"]:
+        day["weather"] = {
+            "status": "available",
+            "condition": "模型声称的晴天",
+            "low_celsius": 99,
+            "high_celsius": 100,
+            "source": "model",
+        }
+    generator = RecordingGenerator([data])
+    result = make_orchestrator(generator, weather=WindowWeather()).run(trip_request)
+
+    assert all(day.weather.source == "Open-Meteo" for day in result.itinerary.days)
+    assert all(day.weather.condition != "模型声称的晴天" for day in result.itinerary.days)
+    assert result.critic.accepted
+
+
+class AuthorityBypassGraph(LangGraphTripOrchestrator):
+    def _apply_authoritative_weather(self, state):
+        return {"itinerary_draft": state["itinerary_draft"]}
+
+
+def test_critic_rejects_weather_fact_conflict_when_authority_step_is_bypassed() -> None:
+    trip_request = request()
+    data = payload(trip_request)
+    for day in data["days"]:
+        day["weather"] = {
+            "status": "available",
+            "condition": "模型声称的晴天",
+            "low_celsius": 99,
+            "high_celsius": 100,
+            "source": "model",
+        }
+    generator = RecordingGenerator([data])
+    weather_enricher = WeatherEnrichmentService(WindowWeather())
+    orchestrator = AuthorityBypassGraph(
+        TripService(generator, weather_enricher=weather_enricher), max_repair_attempts=0
+    )
+
+    with pytest.raises(CriticRejectedError) as error:
+        orchestrator.run(trip_request)
+
+    assert any(
+        finding.code == "WEATHER_EVIDENCE_MISMATCH" for finding in error.value.report.findings
+    )
 
 
 def test_optional_failures_degrade_without_blocking_generation() -> None:

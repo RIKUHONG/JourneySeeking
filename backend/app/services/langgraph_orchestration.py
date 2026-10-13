@@ -18,9 +18,11 @@ from uuid import uuid4
 from langgraph.graph import END, START, StateGraph
 
 from backend.app.integrations.contracts import DailyForecast
+from backend.app.integrations.errors import WeatherServiceError
 from backend.app.models.schemas import Itinerary, TripRequest, WeatherInfo
 from backend.app.services.city_resolution import CityCoverageStatus, CityResolution, resolve_city
 from backend.app.services.orchestration import (
+    CriticFinding,
     CriticRejectedError,
     CriticReport,
     ItineraryCritic,
@@ -453,29 +455,46 @@ class LangGraphTripOrchestrator:
                 {"planning_context_status": {"weather": "degraded"}, "weather_context": context},
             )
         day_count = len(expected_dates)
+        resolution = state.get("city_resolution")
+        city = resolution.city if resolution is not None else request.destination
         try:
             if hasattr(provider, "forecast_window"):
                 forecasts = provider.forecast_window(
-                    request.destination,
+                    city,
                     start_date=request.start_date,
                     end_date=request.end_date,
                 )
             else:
-                forecasts = provider.forecast(request.destination, days=day_count)
+                forecasts = provider.forecast(city, days=day_count)
         except Exception as exc:
+            reason = (
+                exc.reason.value if isinstance(exc, WeatherServiceError) else type(exc).__name__
+            )
             raise _GraphDegraded(
-                type(exc).__name__,
+                reason,
                 {"planning_context_status": {"weather": "degraded"}, "weather_context": context},
             ) from exc
 
+        conflicts: set[str] = set()
         for forecast in forecasts or ():
             if not isinstance(forecast, DailyForecast):
                 continue
             key = forecast.date.isoformat()
             if key not in context:
                 continue
-            if not forecast.condition or not all(
-                math.isfinite(value) for value in (forecast.low_celsius, forecast.high_celsius)
+            if context[key]["status"] == "available":
+                conflicts.add(key)
+                context[key] = {"status": "unknown"}
+                continue
+            if key in conflicts:
+                continue
+            if (
+                not isinstance(forecast.condition, str)
+                or not forecast.condition.strip()
+                or not all(
+                    math.isfinite(value) for value in (forecast.low_celsius, forecast.high_celsius)
+                )
+                or forecast.low_celsius > forecast.high_celsius
             ):
                 continue
             context[key] = {
@@ -483,8 +502,8 @@ class LangGraphTripOrchestrator:
                 "condition": forecast.condition,
                 "low_celsius": forecast.low_celsius,
                 "high_celsius": forecast.high_celsius,
-                "source": getattr(provider, "source", "weather_service"),
-                "fetched_at": None,
+                "source": forecast.source or getattr(provider, "source", "weather_service"),
+                "fetched_at": forecast.fetched_at,
             }
         has_unknown = any(item["status"] == "unknown" for item in context.values())
         status = "degraded" if has_unknown else "succeeded"
@@ -672,6 +691,31 @@ class LangGraphTripOrchestrator:
         pool = state.get("candidate_pool")
         trusted_ids = set(pool.by_id) if getattr(pool, "meets_minimum", False) else None
         report = self.critic.review(state["request"], itinerary, trusted_poi_ids=trusted_ids)
+        findings = list(report.findings)
+        for index, day in enumerate(itinerary.days):
+            evidence = state.get("weather_context", {}).get(
+                day.date.isoformat(), {"status": "unknown"}
+            )
+            if evidence.get("status") == "available":
+                expected = WeatherInfo(
+                    status="available",
+                    condition=evidence["condition"],
+                    low_celsius=evidence["low_celsius"],
+                    high_celsius=evidence["high_celsius"],
+                    source=evidence.get("source"),
+                    fetched_at=evidence.get("fetched_at"),
+                )
+            else:
+                expected = WeatherInfo(status="unknown")
+            if day.weather != expected:
+                findings.append(
+                    CriticFinding(
+                        "WEATHER_EVIDENCE_MISMATCH",
+                        "天气字段与同日供应商证据不一致",
+                        f"days.{index}.weather",
+                    )
+                )
+        report = CriticReport(accepted=not findings, findings=tuple(findings))
         if not report.accepted:
             raise _GraphFailure(
                 "CRITIC_REJECTED",

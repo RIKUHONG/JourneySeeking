@@ -41,7 +41,7 @@ MOMA_MAX_RETRIES=0
 MOMA_MAX_TOKENS=4096
 ORCHESTRATION_STEP_TIMEOUT_SECONDS=0
 AMAP_API_KEY=你的高德服务密钥
-WEATHER_API_KEY=你的天气密钥
+WEATHER_BASE_URL=https://api.open-meteo.com/v1
 ```
 
 不要把 `backend/.env` 提交到 Git，也不要把 API Key 写入日志、截图或测试报告。
@@ -448,7 +448,7 @@ MOMA_MAX_RETRIES=0
 
 ### 4. 地图和天气降级
 
-临时移除或填写无效的 `AMAP_API_KEY`、`WEATHER_API_KEY` 后重启并生成。基础行程应尽量保留；地图状态应为 `partial` 或 `unavailable`，天气应为空或 `unknown`，不得伪造已核实数据。P3 还要确认天气工具失败发生在 `generate_base_itinerary` 前时，trace 标记 `degraded`，Planner 不使用虚构天气事实。
+临时移除 `AMAP_API_KEY` 可验证地图及天气城市坐标解析降级；单独验证天气故障时保留高德 Key，并将 `WEATHER_BASE_URL` 临时设为不可达的测试地址。重启并生成，基础行程应尽量保留；地图状态应为 `partial` 或 `unavailable`，天气逐日为 `unknown`，不得伪造已核实数据。P3 还要确认天气工具失败发生在 `generate_base_itinerary` 前时，trace 标记 `degraded`，Planner 不使用虚构天气事实。测试后恢复 Open-Meteo 地址。
 
 ### 5. Critic 拒绝
 

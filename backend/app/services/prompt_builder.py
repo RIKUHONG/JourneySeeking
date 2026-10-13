@@ -85,6 +85,7 @@ class PromptBuilder:
             weather_text = (
                 "生成前天气证据（按日期匹配；unknown 不代表晴天，不能补写天气事实）：\n"
                 + json.dumps(weather_context, ensure_ascii=False, default=str)
+                + "\n仅根据 available 的同日证据调整室内外活动和时段；雨雪或雷暴时优先安排稳健的室内选择。"
                 + "\n生成前证据状态：\n"
                 + json.dumps(planning_status, ensure_ascii=False, default=str)
             )

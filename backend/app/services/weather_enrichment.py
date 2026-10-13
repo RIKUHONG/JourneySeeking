@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import math
+from datetime import date
 
 from backend.app.integrations.contracts import DailyForecast, WeatherService
 from backend.app.integrations.errors import WeatherServiceError
@@ -23,15 +25,41 @@ class WeatherEnrichmentService:
     def enrich(self, itinerary: Itinerary) -> Itinerary:
         day_count = (itinerary.end_date - itinerary.start_date).days + 1
         try:
-            forecasts = self.weather_service.forecast(itinerary.destination, days=min(day_count, 4))
+            if hasattr(self.weather_service, "forecast_window"):
+                forecasts = self.weather_service.forecast_window(
+                    itinerary.destination,
+                    start_date=itinerary.start_date,
+                    end_date=itinerary.end_date,
+                )
+            else:
+                forecasts = self.weather_service.forecast(
+                    itinerary.destination, days=min(day_count, 7)
+                )
         except WeatherServiceError as exc:
-            # Weather is an optional enhancement: preserve the validated base itinerary.
             logger.warning("weather enrichment unavailable: %s", getattr(exc, "reason", exc))
+            for day in itinerary.days:
+                day.weather = WeatherInfo(status="unknown")
+                day.weather_advice = []
             return itinerary
 
-        by_date = {forecast.date: forecast for forecast in forecasts}
+        by_date: dict[date, DailyForecast] = {}
+        conflicts: set[date] = set()
+        for forecast in forecasts:
+            if (
+                not isinstance(forecast.condition, str)
+                or not forecast.condition.strip()
+                or not all(
+                    math.isfinite(value) for value in (forecast.low_celsius, forecast.high_celsius)
+                )
+                or forecast.low_celsius > forecast.high_celsius
+            ):
+                continue
+            if forecast.date in by_date:
+                conflicts.add(forecast.date)
+            else:
+                by_date[forecast.date] = forecast
         for day in itinerary.days:
-            forecast = by_date.get(day.date)
+            forecast = None if day.date in conflicts else by_date.get(day.date)
             if forecast is None:
                 day.weather = WeatherInfo(status="unknown")
                 day.weather_advice = []
@@ -40,14 +68,14 @@ class WeatherEnrichmentService:
             day.weather_advice = self._advice(forecast)
         return itinerary
 
-    @staticmethod
-    def _weather_info(forecast: DailyForecast) -> WeatherInfo:
+    def _weather_info(self, forecast: DailyForecast) -> WeatherInfo:
         return WeatherInfo(
             status="available",
             condition=forecast.condition,
             low_celsius=forecast.low_celsius,
             high_celsius=forecast.high_celsius,
-            source="amap",
+            source=forecast.source or getattr(self.weather_service, "source", None),
+            fetched_at=forecast.fetched_at,
         )
 
     @staticmethod

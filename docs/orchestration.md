@@ -48,7 +48,7 @@ flowchart TD
 
 ### P3-01 实现状态
 
-P3-01 已在 `backend/app/services/langgraph_orchestration.py` 提供有界 `StateGraph` 实现。它复用现有 `TripService`、候选池、天气服务和规则 Critic，并通过显式 `candidate_pool` 与 `planning_context` 参数阻止生成器再次隐式搜索候选或丢失天气证据。`replay_trace()` 可返回最近一次执行的脱敏节点路径。
+P3-01 已在 `backend/app/services/langgraph_orchestration.py` 提供有界 `StateGraph` 实现。它复用现有 `TripService`、候选池、天气服务和规则 Critic，并通过显式 `candidate_pool` 与 `planning_context` 参数阻止生成器再次隐式搜索候选或丢失天气证据。P3-02 将天气服务切换为 Open-Meteo 日期范围查询；`replay_trace()` 可返回最近一次执行的脱敏节点路径。
 
 运行时由 `AGENT_RUNTIME` 控制：默认 `legacy` 保持 P2 `TripOrchestrator`，设置为 `langgraph` 才启用 P3 图。两条路径共用 `TripRequest`、`Itinerary`、错误处理和 SQLite 持久化边界。
 
@@ -78,7 +78,7 @@ P3 状态至少包含 `graph_version`、`request_id`、`request`、`city_resolut
 ## 7 天天气规则
 
 - 请求日期范围当前允许 3 至 7 天，天气节点覆盖完整请求范围，最多 7 个日历日。
-- 如果供应商单次只能查询较短窗口，天气 adapter 拆分请求并合并；图节点不把“供应商最多 4 天”暴露为业务限制。
+- Open-Meteo 一次查询请求日期范围内最多 7 天；高德只用于取得城市坐标。图节点不把旧高德天气适配器的 4 天上限暴露为业务限制。
 - 按 `DayPlan.date` 和天气记录日期等值匹配；不按数组位置匹配，不把缺失记录前移或后移。
 - 有供应商数据的日期是 `available`；无同日可信数据是 `unknown`，不能填 condition、温度或 source。
 - 天气证据在生成前用于安排室内/室外活动、时段和备选；生成后只做权威字段回填和 Critic 校验。
@@ -90,7 +90,7 @@ P3 状态至少包含 `graph_version`、`request_id`、`request`、`city_resolut
 - `verified` POI 必须具有 ID、坐标和高德来源；存在可信候选池时，ID 必须属于该池；
 - `verified` 路线必须具有可靠起终点坐标、路线对象和高德来源；
 - `unknown` 天气不能携带天气状况、温度或来源等具体事实；
-- 最终 `DayPlan.weather` 必须来自按日期对齐的天气证据，不能只依赖模型输出。
+- 最终 `DayPlan.weather` 必须与按日期对齐的 Open-Meteo 证据及来源一致，不能只依赖模型输出。
 
 Critic 拒绝时抛出 `CriticRejectedError`，包含结构化 `CriticReport` 和截至失败点的脱敏轨迹。
 
@@ -116,4 +116,4 @@ P3-01 离线验收：
 python -m pytest backend/tests/api/test_langgraph_orchestration.py -q
 ```
 
-验收覆盖正常路径、POI/天气/RAG 前置并行、供应商降级、生成前证据、权威天气回填、结构修复、Critic 修复/拒绝、修复上限、步骤上限和轨迹回放。所有测试使用 fake integration，不访问真实密钥。P3-02 仍负责真实天气 adapter 的 7 天分片、合并和日期窗口扩展。
+验收覆盖正常路径、POI/天气/RAG 前置并行、供应商降级、生成前证据、权威天气回填、结构修复、Critic 修复/拒绝、修复上限、步骤上限和轨迹回放。所有测试使用 fake integration，不访问真实密钥。P3-02 的 Open-Meteo 适配器已补充日期范围和来源测试；真实杭州 7 日天气查询见 [P3-02 任务流程](p3-02-task-flow.md)。

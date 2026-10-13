@@ -70,6 +70,26 @@ class AmapClient:
             session=self.session,
         )
 
+    def geocode_city(self, city: str) -> Coordinates:
+        if not city.strip():
+            raise ValueError("City is required")
+        requested = city.strip()
+        payload = self._request("/geocode/geo", {"address": requested, "city": requested})
+        geocodes = payload.get("geocodes")
+        if not isinstance(geocodes, list):
+            raise MapServiceError(FailureReason.INVALID_RESPONSE)
+        for item in geocodes:
+            if not isinstance(item, dict):
+                continue
+            resolved_city = _region_text(item.get("city"))
+            if resolved_city and not _same_city(requested, resolved_city):
+                continue
+            try:
+                return _coordinates(item.get("location"))
+            except (TypeError, ValueError):
+                continue
+        raise MapServiceError(FailureReason.INVALID_RESPONSE)
+
     def search_pois(self, keyword: str, *, city: str | None = None, limit: int = 10) -> list[Place]:
         if not keyword.strip() or not 1 <= limit <= 25:
             raise ValueError("POI search requires a keyword and a limit from 1 to 25")

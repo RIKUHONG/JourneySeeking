@@ -106,7 +106,7 @@ HTTP 状态码为 `200 OK` 时返回 `Itinerary`。`days` 必须覆盖请求日�
 | `days[].weather.condition` | string/null | 供应商返回的天气描述；未知时为 `null`。 |
 | `days[].weather.low_celsius` | number/null | 最低温度（摄氏）；未知时为 `null`。 |
 | `days[].weather.high_celsius` | number/null | 最高温度（摄氏）；未知时为 `null`。 |
-| `days[].weather.source` | string/null | 数据来源标识，例如 `amap`。 |
+| `days[].weather.source` | string/null | 当前预报来源为 `Open-Meteo`；历史行程可能仍为 `amap`。 |
 | `days[].weather.fetched_at` | string/null | 获取时间（ISO-8601）；没有时为 `null`。 |
 | `days[].weather_advice` | array[string] | 可选的轻量天气提示；不得删除、替换或重排行程。 |
 | `total_estimated_cost` | number | 行程预计总费用，必须大于等于 `0`，且不能小于已列活动预计费用之和。可包含尚未单独列出的住宿、交通等费用。 |
@@ -294,7 +294,7 @@ GET /api/trip/{trip_id}/export?version=2&format=markdown
 
 ## P1 地图与天气接入约束（P2 历史基线）
 
-P2 的 `POST /api/trip/generate` 在基础行程通过校验后依次调用地图和天气补全，这是历史行为。P3 目标链路会在基础生成前并行查询可信 POI 和天气，生成后仍保留确定性的地图路线补全和天气权威回填。所有新增字段均为向后兼容字段；没有地图或天气 Key、搜索或预报失败时，P3 记录降级并在允许时保留可用行程，不伪造事实。供应商适配器内部有 `MAP_SERVICE_ERROR`/`WEATHER_SERVICE_ERROR` 类型，公共错误码和响应形状保持不变。
+P2 的 `POST /api/trip/generate` 在基础行程通过校验后依次调用地图和天气补全，这是历史行为。P3 LangGraph 链路在基础生成前并行查询可信 POI 和 Open-Meteo 天气，生成后仍保留确定性的地图路线补全和天气权威回填。新增字段保持向后兼容；没有城市坐标、搜索或预报失败时记录降级并在允许时保留可用行程，不伪造事实。供应商适配器内部有 `MAP_SERVICE_ERROR`/`WEATHER_SERVICE_ERROR` 类型，公共错误码和响应形状保持不变。
 
 ## P2-02 城市解析与候选池
 
@@ -318,12 +318,12 @@ P2 的 `POST /api/trip/generate` 在基础行程通过校验后依次调用地�
 
 ### 天气与建议
 
-- 预报按日期映射到行程；天气可用时标明数据来源，`fetched_at` 当前可为 `null`。P3 的业务查询窗口覆盖请求日期范围，最多 7 个日历日；如果供应商单次窗口较短，由 adapter 分片查询、合并和去重。
+- 预报按日期映射到行程；当前 Open-Meteo 可按指定起止日期一次查询最多 7 个日历日，`source=Open-Meteo`，`fetched_at` 为适配器取得响应的 UTC 时间。旧行程的 `fetched_at` 可为 `null`。
 - P3 在基础行程生成前把 `weather_context` 传给 Planner，使其选择室内/室外活动和备选时段；生成后以供应商记录按日期权威回填 `days[].weather`，模型自报天气不具备事实权威。
 - 雨天等建议必须依据实际预报，不得把天气未知解释为晴天，也不能凭天气推断景点营业状态。
 - 天气不可用时保留可降级的基础行程，并标记 `unknown`/降级状态；当前可选天气、建议和缺失状态字段的日期对齐与兼容行为见上文。
 
-地图业务接入采用可选补全降级策略：服务错误映射为 `unavailable` 状态并返回可用行程；天气服务失败时 `weather` 为 `null` 或逐日 `unknown`，`weather_advice` 为空数组。P3 的生成图会保留前置天气查询的降级轨迹，但不改变这些公共字段语义。
+地图业务接入采用可选补全降级策略：服务错误映射为 `unavailable` 状态并返回可用行程；当前天气服务失败时逐日标记 `unknown`，`weather_advice` 为空数组。历史行程或未接入天气的响应仍可能为 `null`。P3 的生成图保留前置天气查询的降级轨迹。
 
 ## P3 生成前证据与运行时
 

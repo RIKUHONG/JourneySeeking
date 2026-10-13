@@ -12,21 +12,19 @@ from backend.app.integrations.errors import (
 )
 
 
-def test_external_services_do_not_require_keys_at_startup():
-    config = Settings(amap_api_key="", weather_api_key="")
+def test_open_meteo_needs_no_weather_key_but_city_geocoding_needs_map_key():
+    config = Settings(amap_api_key="")
 
     assert config.amap_api_key == ""
-    assert config.weather_api_key == ""
+    config.validate_weather()
 
     with pytest.raises(ValueError, match="AMAP_API_KEY"):
         config.validate_map()
-    with pytest.raises(ValueError, match="WEATHER_API_KEY"):
-        config.validate_weather()
 
 
 @pytest.mark.parametrize("service", ["map", "weather"])
 def test_external_config_rejects_invalid_url_timeout_and_retries(service):
-    config = Settings(amap_api_key="test-key", weather_api_key="test-key")
+    config = Settings(amap_api_key="test-key")
     prefix = "amap" if service == "map" else "weather"
     validate = lambda candidate: getattr(candidate, f"validate_{service}")()
 

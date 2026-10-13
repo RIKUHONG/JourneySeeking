@@ -3,7 +3,7 @@ from datetime import date
 from backend.app.integrations.contracts import DailyForecast
 from backend.app.integrations.errors import FailureReason
 from backend.app.integrations.mock_weather_service import MockWeatherService
-from backend.app.models.schemas import Activity, DayPlan, Itinerary
+from backend.app.models.schemas import Activity, DayPlan, Itinerary, WeatherInfo
 from backend.app.services.weather_enrichment import WeatherEnrichmentService
 
 
@@ -39,7 +39,7 @@ def forecast(day: int, condition: str = "晴") -> DailyForecast:
     )
 
 
-def test_weather_maps_by_date_and_marks_days_after_four_unknown() -> None:
+def test_weather_maps_by_date_and_marks_missing_days_unknown() -> None:
     # Deliberately return records out of order to ensure mapping does not use index.
     service = MockWeatherService(
         forecasts={"杭州": [forecast(3, "小雨"), forecast(1), forecast(2), forecast(4)]}
@@ -65,6 +65,30 @@ def test_weather_failure_returns_unchanged_base_itinerary(caplog) -> None:
         base
     )
 
-    assert [day.weather for day in result.days] == [None, None, None]
+    assert [day.weather.status for day in result.days] == ["unknown"] * 3
     assert [day.activities[0].name for day in result.days] == ["西湖"] * 3
     assert "weather enrichment unavailable" in caplog.text
+
+
+def test_seven_day_open_meteo_forecast_is_authoritative() -> None:
+    base = itinerary(7)
+    base.days[0].weather = WeatherInfo(status="available", condition="晴", source="model")
+    forecasts = [
+        DailyForecast(
+            date(2026, 10, day),
+            "小雨" if day == 1 else "阴",
+            15,
+            24,
+            source="Open-Meteo",
+            fetched_at="2026-10-13T08:00:00+00:00",
+        )
+        for day in range(1, 8)
+    ]
+    result = WeatherEnrichmentService(MockWeatherService(forecasts={"杭州": forecasts})).enrich(
+        base
+    )
+
+    assert [day.weather.status for day in result.days] == ["available"] * 7
+    assert result.days[0].weather.condition == "小雨"
+    assert result.days[0].weather.source == "Open-Meteo"
+    assert result.days[0].weather.fetched_at == "2026-10-13T08:00:00+00:00"

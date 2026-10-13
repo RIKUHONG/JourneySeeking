@@ -130,7 +130,9 @@ def get_trip_service() -> TripService:
             ),
         ),
         map_enricher=MapEnrichmentService(map_client, cache=_map_cache),
-        weather_enricher=WeatherEnrichmentService(WeatherClient(config=settings)),
+        weather_enricher=WeatherEnrichmentService(
+            WeatherClient(config=settings, geocoder=map_client)
+        ),
         image_enricher=ImageEnrichmentService(map_client),
     )
 

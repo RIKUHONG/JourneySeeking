@@ -35,6 +35,9 @@ def test_mock_weather_implements_contract_and_failure_injection():
 
     assert isinstance(service, WeatherService)
     assert service.forecast("杭州", days=1) == [forecast]
+    assert service.forecast_window(
+        "杭州", start_date=date(2026, 10, 1), end_date=date(2026, 10, 7)
+    ) == [forecast]
     with pytest.raises(WeatherServiceError) as empty_info:
         service.forecast("不存在", days=1)
     assert empty_info.value.reason is FailureReason.INVALID_RESPONSE
