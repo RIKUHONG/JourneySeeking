@@ -1,6 +1,6 @@
 # 觅旅（MiliTravel）
 
-觅旅是旅行规划项目。当前仓库包含 Python 3.11+ 后端和 Vue 3/TypeScript 前端，业务代码在 `backend/app/`，测试在 `backend/tests/`。长期目标见 [软件开发文档](觅旅-MoMA软件开发文档.md)，当前执行基线见 [路线图](docs/roadmap.md)。
+觅旅是旅行规划项目。当前仓库包含 Python 3.11+ 后端和 Vue 3/TypeScript 前端，业务代码在 `backend/app/`，测试在 `backend/tests/`。长期目标见 [软件开发文档](觅旅-MoMA软件开发文档.md)，当前执行基线见 [路线图](docs/roadmap.md)。P3 的状态图和实施边界见 [P3 Agent 化规划](docs/p3-plan.md)。
 
 ## 项目状态（2026-09-29）
 
@@ -9,9 +9,10 @@
 | P0 | 已完成 | `TripRequest` / `Itinerary`、`POST /api/trip/generate`、MoMA 生成与校验 |
 | P1 | 已进入 `main` | 候选 POI ID 校验、高德地点/路线补全、进程内地图缓存、逐日天气与轻量建议 |
 | 生成链路修复 | 已进入本地 `main` | `6f76009`，包含生成补全修复和杭州真实生成样例 |
-| P2 | 核心功能已合入，P2-10 集成验收进行中 | [差距对比与 Issue 清单](docs/p2-issues.md) |
+| P2 | 核心功能已合入，作为 P3 迁移基线 | [差距对比与 Issue 清单](docs/p2-issues.md) |
+| P3 | 设计中 | LangGraph 状态图、生成前 POI/7 天天气、Prompt 工程、MCP 工具和评测驱动 RAG |
 
-`/api/chat` 已有原始 MoMA 对话转发，但不是行程会话或多轮编辑接口。Redis adapter 和天气自动调度尚未实现，也不是 P2 核心完成门槛。
+`/api/chat` 已有原始 MoMA 对话转发，但不是行程会话或多轮编辑接口。P3 的目标运行时会保留 P2 legacy 回滚路径；天气查询将从 P2 默认 3 天（旧适配器技术上限 4 天）前移到基础生成前，并覆盖请求范围内最多 7 天。天气驱动的已保存行程自动调整仍需用户确认，不属于基础生成图。
 
 ## 本地运行
 

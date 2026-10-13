@@ -425,9 +425,9 @@ try { Invoke-WebRequest -Uri $url -Method Head -TimeoutSec 15 } catch { $_.Excep
 
 返回 `401 Unauthorized` 通常表示网络和服务地址可达，认证检查正常。
 
-### 2. 真实生成
+### 2. 真实生成（P2 历史链路）
 
-配置真实 Key 后重启后端，使用 OpenAPI 或前端生成三日杭州行程。选择未来 1 至 3 天内的日期，以便同时验证天气预报；过期日期只能验证生成结构，无法验证真实天气。通过 PowerShell 或浏览器开发工具设置请求头：
+配置真实 Key 后重启后端，使用 OpenAPI 或前端生成三日杭州行程。P2 历史链路可选择未来 1 至 3 天内的日期，以便同时验证天气补全；过期日期只能验证生成结构，无法验证真实天气。P3 联调应增加 7 天请求，验证天气查询在基础生成前执行，并检查 Planner 使用了天气上下文。通过 PowerShell 或浏览器开发工具设置请求头：
 
 ```text
 X-Request-ID: manual-moma-001
@@ -448,7 +448,7 @@ MOMA_MAX_RETRIES=0
 
 ### 4. 地图和天气降级
 
-临时移除或填写无效的 `AMAP_API_KEY`、`WEATHER_API_KEY` 后重启并生成。基础行程应尽量保留；地图状态应为 `partial` 或 `unavailable`，天气应为空或 `unknown`，不得伪造已核实数据。
+临时移除或填写无效的 `AMAP_API_KEY`、`WEATHER_API_KEY` 后重启并生成。基础行程应尽量保留；地图状态应为 `partial` 或 `unavailable`，天气应为空或 `unknown`，不得伪造已核实数据。P3 还要确认天气工具失败发生在 `generate_base_itinerary` 前时，trace 标记 `degraded`，Planner 不使用虚构天气事实。
 
 ### 5. Critic 拒绝
 
@@ -519,7 +519,8 @@ npm run build
 | 请求 ID | 通过/失败 | |
 | 真实 MoMA 生成 | 通过/失败 | 请求 ID： |
 | POI/路线补全 | 通过/失败 | 核实率： |
-| 天气补全 | 通过/失败 | |
+| 生成前 POI/天气上下文（P3） | 通过/失败 | 节点顺序/覆盖率： |
+| 天气补全与权威回填 | 通过/失败 | 3/4/7 天覆盖： |
 | 外部服务降级 | 通过/失败 | |
 | 前端桌面流程 | 通过/失败 | |
 | 前端移动端流程 | 通过/失败 | |

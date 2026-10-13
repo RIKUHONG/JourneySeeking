@@ -1,6 +1,6 @@
-# 当前 API 契约与 P2 扩展边界
+# 当前 API 契约、P2 基线与 P3 扩展边界
 
-本文档记录 2026-09-29 本地 `main`（`6f76009`）已有的旅行规划 API 以及 P2-01 冻结的身份、版本和预留接口契约。后端模型、路由、测试和 MoMA 生成结果以当前契约为准。字段删除或改名必须先经过团队评审；新增字段应保持向后兼容。
+本文档记录当前已有的旅行规划 API、P2-01 冻结的身份/版本契约，以及 P3 对生成时天气和 Agent 运行时的兼容边界。后端模型、路由、测试和 MoMA 生成结果以当前契约为准。字段删除或改名必须先经过团队评审；新增字段应保持向后兼容。P3 的状态图和节点契约见 [P3 Agent 化规划](p3-plan.md)。
 
 ## `POST /api/trip/generate`
 
@@ -101,7 +101,7 @@ HTTP 状态码为 `200 OK` 时返回 `Itinerary`。`days` 必须覆盖请求日�
 | `days[].activities[].poi_status` | string | `not_attempted`、`verified`、`not_found`、`ambiguous` 或 `unavailable`。 |
 | `days[].activities[].address` / `latitude` / `longitude` / `map_source` | string/number/null | 可选的已核实地图信息，未知时不得伪造。 |
 | `days[].activities[].route_status` / `route_from_previous` | string/object/null | 相邻活动的路线状态及供应商估算；见下文。 |
-| `days[].weather` | object/null | 可选天气补充，按同一 `DayPlan.date` 对齐；天气服务失败时为 `null`，不影响基础行程。 |
+| `days[].weather` | object/null | 按同一 `DayPlan.date` 对齐的天气事实。P2 为生成后补充；P3 在生成前查询并在生成后按供应商结果权威回填。天气服务失败时为 `null` 或逐日 `unknown`，不影响可降级的基础行程。 |
 | `days[].weather.status` | `available`/`unknown` | `available` 表示有供应商预报；`unknown` 表示超出预报覆盖范围或没有该日数据，不能解读为晴天。 |
 | `days[].weather.condition` | string/null | 供应商返回的天气描述；未知时为 `null`。 |
 | `days[].weather.low_celsius` | number/null | 最低温度（摄氏）；未知时为 `null`。 |
@@ -292,9 +292,9 @@ GET /api/trip/{trip_id}/export?version=2&format=markdown
 }
 ```
 
-## P1 地图与天气接入约束
+## P1 地图与天气接入约束（P2 历史基线）
 
-当前 `POST /api/trip/generate` 在基础行程通过校验后依次调用地图和天气补全。所有新增字段均为向后兼容字段；没有地图或天气 Key、搜索或预报失败时保留基础行程。供应商适配器内部有 `MAP_SERVICE_ERROR`/`WEATHER_SERVICE_ERROR` 类型，但当前生成端点将这些可选补全失败降级处理，不以这两个错误码响应。
+P2 的 `POST /api/trip/generate` 在基础行程通过校验后依次调用地图和天气补全，这是历史行为。P3 目标链路会在基础生成前并行查询可信 POI 和天气，生成后仍保留确定性的地图路线补全和天气权威回填。所有新增字段均为向后兼容字段；没有地图或天气 Key、搜索或预报失败时，P3 记录降级并在允许时保留可用行程，不伪造事实。供应商适配器内部有 `MAP_SERVICE_ERROR`/`WEATHER_SERVICE_ERROR` 类型，公共错误码和响应形状保持不变。
 
 ## P2-02 城市解析与候选池
 
@@ -318,11 +318,16 @@ GET /api/trip/{trip_id}/export?version=2&format=markdown
 
 ### 天气与建议
 
-- 预报按日期映射到行程；天气可用时标明数据来源，`fetched_at` 当前可为 `null`。高德天气客户端最多请求 4 天，行程允许 3 至 7 天；覆盖范围取决于请求日期与供应商返回日期的交集，不能保证任意 3～4 天行程都有预报。
+- 预报按日期映射到行程；天气可用时标明数据来源，`fetched_at` 当前可为 `null`。P3 的业务查询窗口覆盖请求日期范围，最多 7 个日历日；如果供应商单次窗口较短，由 adapter 分片查询、合并和去重。
+- P3 在基础行程生成前把 `weather_context` 传给 Planner，使其选择室内/室外活动和备选时段；生成后以供应商记录按日期权威回填 `days[].weather`，模型自报天气不具备事实权威。
 - 雨天等建议必须依据实际预报，不得把天气未知解释为晴天，也不能凭天气推断景点营业状态。
-- 天气不可用时保留基础行程；当前可选天气、建议和缺失状态字段的日期对齐与兼容行为见上文。
+- 天气不可用时保留可降级的基础行程，并标记 `unknown`/降级状态；当前可选天气、建议和缺失状态字段的日期对齐与兼容行为见上文。
 
-地图业务接入采用可选补全降级策略：服务错误映射为 `unavailable` 状态并返回基础行程；天气服务失败时 `weather` 为 `null`，`weather_advice` 为空数组。
+地图业务接入采用可选补全降级策略：服务错误映射为 `unavailable` 状态并返回可用行程；天气服务失败时 `weather` 为 `null` 或逐日 `unknown`，`weather_advice` 为空数组。P3 的生成图会保留前置天气查询的降级轨迹，但不改变这些公共字段语义。
+
+## P3 生成前证据与运行时
+
+P3 使用 LangGraph 状态图编排有限节点，状态至少包含 `graph_version`、`request_id`、城市解析、RAG 片段、可信候选池、`weather_context`、降级状态、修复次数和 Critic 报告。POI 搜索和最多 7 天天气查询必须在基础行程生成之前完成或明确降级；MCP 工具只通过白名单和 Schema 暴露，不能由模型改变用户硬约束。`AGENT_RUNTIME=legacy` 可回滚到 P2 编排，`AGENT_RUNTIME=langgraph` 为 P3 目标运行时。
 
 ## 其他当前路由与 P2 预留
 

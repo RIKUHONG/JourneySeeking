@@ -1,17 +1,17 @@
-# P2 差距清单与 Issue 分工
+# P2 差距清单与 Issue 分工（历史基线）
 
-核对基线：2026-09-29 的本地 `main`（`6f76009`，已合并生成链路修复）；参考项目为根目录下本地 `helloagents-trip-planner/`。参考项目只用于识别能力差距，接口、模型和实现以本仓库为准；该目录不提交到本仓库。`python -m pytest -q` 在基线上为 142 passed。真实杭州生成链路样例见 `docs/fixtures/trip-generate-hangzhou-20260929.json`，它不是持续的线上联调测试。
+核对基线：2026-10-13 的本地 `main`（P2 已合入；历史生成链路修复提交为 `6f76009`）；参考项目为根目录下本地 `helloagents-trip-planner/`。参考项目只用于识别能力差距，接口、模型和实现以本仓库为准；该目录不提交到本仓库。本文档记录 P2 的历史 Issue 边界，不是 P3 实施计划；P3 以 [P3 Agent 化规划](p3-plan.md) 为准。真实杭州生成链路样例见 `docs/fixtures/trip-generate-hangzhou-20260929.json`，它不是持续的线上联调测试。
 
 ## 已有能力与差距
 
 | 能力 | 当前 `main` | 参考项目可核对位置 | P2 处理 |
 | --- | --- | --- | --- |
 | 结构化生成 | `POST /api/trip/generate`、MoMA 解析/校验、3～7 天请求 | `backend/app/api/routes/trip.py` | 保留现有契约，补端到端失败场景 |
-| POI、路线、天气 | 候选 POI ID 校验、地图补全、内存地图缓存、逐日天气与雨天提示 | `services/place_candidate_service.py`、`map_service.py`、`weather_service.py` | P2-02 完善城市解析和候选不足判定；天气自动调度另列候选 |
+| POI、路线、天气 | 候选 POI ID 校验、地图补全、内存地图缓存、逐日天气与雨天提示；P2 天气在生成后补全 | `services/place_candidate_service.py`、`map_service.py`、`weather_service.py` | P2-02 完善城市解析和候选不足判定；生成前 POI/7 天天气和 LangGraph 迁移转入 P3 |
 | 城市攻略检索 | 无本地知识库、检索或评估集 | `backend/app/rag/`、`backend/data/` | P2-03 |
 | 保存与历史 | 无行程 ID、数据库或增删查接口 | `services/storage_service.py`、`api/routes/trip.py` | P2-01、P2-04 |
 | 局部修改与多轮 | `/api/chat` 只是原始 MoMA 消息转发；无行程编辑或服务端会话 | `api/routes/trip.py`、`agents/trip_planner_agent.py` | P2-05、P2-06；参考项目的单次编辑也不等于完整多轮状态 |
-| 编排与可解释校验 | 固定生成→地图→天气链路，无 Agent 状态或执行轨迹 | `agents/`、`services/trip_service.py` | P2-07 |
+| 编排与可解释校验 | P2 已有固定有限步骤、轨迹和 Critic；天气仍在生成后 | `agents/`、`services/trip_service.py` | P2-07 已完成基线；LangGraph 状态图和前置证据转入 P3 |
 | 前端与导出 | 无 `frontend/`，无 Markdown/PDF 接口 | `frontend/src/`、`api/routes/export.py` | P2-08、P2-09 |
 | Redis | 有 `Cache` 协议和进程内 `MemoryCache`，无 Redis adapter | `services/cache_service.py` | 条件任务 P2-C1；不能成为启动依赖 |
 
@@ -88,14 +88,14 @@
 - 不包含：长期用户画像或直接依赖 MoMA 平台私有上下文 API。`/api/chat` 不冒充行程会话接口。
 - 验收：至少两轮局部编辑保持预算/日期等硬约束；旧版本、跨行程和过期会话被拒绝；上下文长度有上限；删除后不可恢复会话状态。
 
-### P2-07 编排与 Critic 校验
+### P2-07 编排与 Critic 校验（已完成的 P2 基线）
 
 **负责人：B；分支：`feature/p2-agent-orchestration`。**
 
-- 范围：在 service 层定义有限步数的状态与工具调用记录，接入可信候选、RAG、MoMA、地图和天气；以规则 Critic 检查日期、预算、POI 来源、路线可执行性。先实现可测试的编排，再评估是否需要 LangGraph。
+- 范围：在 service 层定义有限步数的状态与工具调用记录，接入可信候选、RAG、MoMA、地图和天气；以规则 Critic 检查日期、预算、POI 来源、路线可执行性。P2 采用可测试的同步编排，LangGraph 迁移留给 P3。
 - 具体内容：定义输入/输出 Schema、步骤状态和工具超时；按城市覆盖结果选择检索或候选路径；接入现有 `TripService` 生成/补全，输出可脱敏执行轨迹与 Critic 报告。
 - 不包含：为每个工具创建独立 LLM Agent、改造供应商适配器。工具失败应有可解释的降级和有限重试。
-- 验收：离线轨迹说明调用顺序、来源、耗时和失败原因；最大步骤数和超时有效；Critic 拒绝日期、预算或 POI 来源违规，不能把未知来源标记为已核实；P0/P1 契约回归通过。
+- 验收：离线轨迹说明调用顺序、来源、耗时和失败原因；最大步骤数和超时有效；Critic 拒绝日期、预算或 POI 来源违规，不能把未知来源标记为已核实；P0/P1 契约回归通过。P3 需在此基线上增加 LangGraph 图、生成前 POI/天气汇聚、7 天天气窗口和新旧运行时对照。
 
 ### P2-08 前端生成与管理
 

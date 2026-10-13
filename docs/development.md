@@ -1,5 +1,7 @@
 # 觅旅开发指南
 
+当前工作面已进入 P3 设计阶段。P3 的状态图、天气前置规则、Prompt 版本和 MCP 边界见 [P3 Agent 化规划](p3-plan.md)。本文档中的 P2 service 说明保留作为迁移基线。
+
 ## 本地初始化与运行
 
 从仓库根目录执行：
@@ -22,11 +24,11 @@ python -m ruff format --check .
 
 测试默认使用 mock，不访问 MoMA 或高德。2026-09-29 本地 `main`（`6f76009`）离线测试为 142 passed；杭州真实生成样例见 `docs/fixtures/trip-generate-hangzhou-20260929.json`，后续真实服务联调仍需单独记录。历史 Ruff 问题不得借 P2 功能 PR 大范围格式化；每个 PR 至少保证改动文件通过并记录全量检查结果。
 
-## P2 协作
+## P2 历史协作
 
 P2 的 A/B/C 分工、指定分支、依赖和验收见 [P2 Issue 清单](p2-issues.md)。各成员按依赖从合并后的最新 `main` 建对应独立分支，关联 PR，至少一名非作者评审。修改共享字段时先更新 [API 契约](api-contract.md) 与契约测试，再修改模型、服务、前端。存储迁移、环境变量、降级和回滚行为须写在 PR 中。
 
-`MapService`、`WeatherService` 的接口及错误类型在 `backend/app/integrations/`；`MapEnrichmentService` 和 `WeatherEnrichmentService` 已进入生成链路。地图使用进程内缓存，失效时按未命中处理；天气最多查询四天，缺失日期为未知。P2 不应重复建立这些基础设施。`/api/chat` 是普通消息转发，不保存行程状态。
+`MapService`、`WeatherService` 的接口及错误类型在 `backend/app/integrations/`；`MapEnrichmentService` 和 `WeatherEnrichmentService` 已进入 P2 生成链路。P2 普通请求默认查询 3 天，适配器技术上限为 4 天，7 天游的其余日期为未知。P3 要求将天气查询提升到基础生成前，并把业务窗口扩展到请求范围内最多 7 天；如果供应商单次窗口不足，adapter 负责分片合并，缺失日期仍为 `unknown`。P2 不应重复建立基础设施，P3 应先扩展现有 integration 契约再接入 LangGraph。`/api/chat` 仍是普通消息转发，不保存行程状态。
 
 P2-02 的城市解析和候选池位于 `backend/app/services/city_resolution.py` 与 `poi_candidates.py`。候选池默认要求景点、餐饮、住宿各至少一个可信候选；候选缺少 ID/坐标、显式城市不匹配、分类不足或地图失败时记录诊断并让生成链路回退到基础行程。生成器保留 `last_candidate_diagnostics` 供后续编排读取，但只把达到门槛的池放入模型约束和 POI ID 校验。新增候选规则应先补充 `backend/tests/api/test_city_candidates.py`，不能在测试中使用真实 Key。
 
@@ -35,3 +37,12 @@ P2-02 的城市解析和候选池位于 `backend/app/services/city_resolution.py
 P2-04 行程存储使用 SQLite，默认路径为 `backend/data/trips.sqlite3`，可通过 `TRIP_DATABASE_PATH` 覆盖。数据库文件不提交到 Git；测试使用临时数据库。保存已有行程必须携带 `expected_version`，版本冲突返回 `TRIP_VERSION_CONFLICT`，存储层不得覆盖较新的版本。历史列表使用服务端编码的 `(updated_at, trip_id)` keyset cursor；非法 cursor 返回 422，不得因解析异常变成 500。
 
 P2-06 会话继续使用 `TRIP_DATABASE_PATH` 指向的 SQLite 文件，并在其中创建 `trip_sessions` 表，不需要额外安装数据库服务。会话默认 TTL 为 7 天，可用 `SESSION_TTL_SECONDS` 覆盖；近期窗口和摘要上限分别由 `SESSION_RECENT_TURN_LIMIT`、`SESSION_SUMMARY_MAX_LENGTH` 配置。会话只保存行程 ID、版本引用和有界上下文，不保存完整 Prompt 或供应商原始响应。会话编辑必须先确认会话版本仍是行程当前版本，成功写入行程后才推进会话引用。
+
+## P3 实施顺序
+
+1. 先冻结 [P3 Agent 化规划](p3-plan.md) 中的 LangGraph 状态 Schema、节点契约和回滚开关；不先改公共 HTTP 字段。
+2. 将城市解析后的 RAG、POI、天气节点并行化，在 `join_planning_context` 汇聚后再生成；天气节点覆盖最多 7 个日历日。
+3. 使用供应商 fake 验证 3/4/7 天、部分覆盖、超时、重复日期和跨城市数据；验证天气证据确实进入基础生成 Prompt。
+4. 再做 Prompt 版本化、MCP 工具 Schema 和 RAG 排序优化。每一步都补充离线测试和脱敏 trace。
+
+P3 的 LangGraph checkpoint 不是行程版本库；SQLite 仍负责业务事实、版本冲突和会话引用。需要回滚时设置 `AGENT_RUNTIME=legacy`，不能删除已有行程数据。
