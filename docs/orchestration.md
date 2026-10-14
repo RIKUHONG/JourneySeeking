@@ -39,7 +39,8 @@ flowchart TD
     I --> J[enrich_map_routes]
     J --> K[enrich_images]
     K --> L[critic_review]
-    L -->|可修复| H
+    L -->|可修复| H2[repair_with_critic_findings]
+    H2 --> G
     L -->|通过| M([END])
     L -->|拒绝| N([CRITIC_REJECTED])
 ```
@@ -49,6 +50,8 @@ flowchart TD
 ### P3-01 实现状态
 
 P3-01 已在 `backend/app/services/langgraph_orchestration.py` 提供有界 `StateGraph` 实现。它复用现有 `TripService`、候选池、天气服务和规则 Critic，并通过显式 `candidate_pool` 与 `planning_context` 参数阻止生成器再次隐式搜索候选或丢失天气证据。P3-02 将天气服务切换为 Open-Meteo 日期范围查询；`replay_trace()` 可返回最近一次执行的脱敏节点路径。
+
+P3-03 将图契约版本提升至 `trip-generation/v2`：首次生成与每个修复节点各只发起一次 MoMA 调用，结构修复和 Critic 修复使用独立版本模板，共用图中的一次默认修复预算。模型调用按请求记录 Prompt/Schema 版本、token、耗时和校验状态，trace 仍只保留脱敏节点摘要。生成 Prompt 的默认版本保持 `p3-02-compat`，受控 A/B 达标前不切到 `v2`。
 
 运行时由 `AGENT_RUNTIME` 控制：默认 `legacy` 保持 P2 `TripOrchestrator`，设置为 `langgraph` 才启用 P3 图。两条路径共用 `TripRequest`、`Itinerary`、错误处理和 SQLite 持久化边界。
 
@@ -102,6 +105,8 @@ RAG、POI、天气、地图和图片失败时记录 `degraded`。候选不足时
 
 P3 通过 `AGENT_RUNTIME=langgraph` 灰度，`AGENT_RUNTIME=legacy` 回滚到 P2 编排。回滚不删除行程版本、会话或历史数据。
 
+`PROMPT_GENERATION_VERSION` 可独立指定 `v1`、`p3-02-compat` 或 `v2`；留空时 legacy 用 `v1`、langgraph 用 `p3-02-compat`。`PROMPT_STRUCTURED_REPAIR_VERSION`、`PROMPT_CRITIC_REPAIR_VERSION` 和 `PROMPT_DAY_EDIT_VERSION` 当前均为 `v1`。未知版本在构造服务时失败，不回退到未声明的模板。
+
 ## 离线验证
 
 P2 基线：
@@ -117,3 +122,5 @@ python -m pytest backend/tests/api/test_langgraph_orchestration.py -q
 ```
 
 验收覆盖正常路径、POI/天气/RAG 前置并行、供应商降级、生成前证据、权威天气回填、结构修复、Critic 修复/拒绝、修复上限、步骤上限和轨迹回放。所有测试使用 fake integration，不访问真实密钥。P3-02 的 Open-Meteo 适配器已补充日期范围和来源测试；真实杭州 7 日天气查询见 [P3-02 任务流程](p3-02-task-flow.md)。
+
+P3-03 的合成 fixture 回放命令是 `python -m backend.eval.prompt_ab`；报告中的 `release_gate_pass=false` 表示缺少成对真实模型采样，不能仅凭 fake 响应切换默认 Prompt。详细门槛见 [P3-03 任务流程](p3-03-task-flow.md)。

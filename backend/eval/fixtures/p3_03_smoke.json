@@ -1,0 +1,63 @@
+{
+  "kind": "synthetic",
+  "cases": [
+    {
+      "id": "three_day_rain_poi",
+      "request": {"destination": "杭州", "start_date": "2026-10-13", "end_date": "2026-10-15", "budget": 100},
+      "candidates": [
+        {"poi_id": "spot-1", "name": "城市公园", "category": "spot"},
+        {"poi_id": "spot-2", "name": "室内博物馆", "category": "spot"},
+        {"poi_id": "spot-3", "name": "历史街区", "category": "spot"}
+      ],
+      "weather": [
+        {"date": "2026-10-13", "condition": "晴", "low_celsius": 15, "high_celsius": 24},
+        {"date": "2026-10-14", "condition": "小雨", "low_celsius": 16, "high_celsius": 22},
+        {"date": "2026-10-15", "condition": "晴", "low_celsius": 15, "high_celsius": 23}
+      ],
+      "weather_expectation": {"2026-10-14": "室内"},
+      "response": {
+        "destination": "杭州", "start_date": "2026-10-13", "end_date": "2026-10-15", "summary": "杭州三日游", "total_estimated_cost": 3,
+        "days": [
+          {"date": "2026-10-13", "title": "公园", "activities": [{"time": "09:00", "name": "城市公园", "poi_id": "spot-1", "poi_category": "spot", "description": "游览", "estimated_cost": 1}]},
+          {"date": "2026-10-14", "title": "博物馆", "activities": [{"time": "09:00", "name": "室内博物馆", "poi_id": "spot-2", "poi_category": "spot", "description": "参观", "estimated_cost": 1}]},
+          {"date": "2026-10-15", "title": "街区", "activities": [{"time": "09:00", "name": "历史街区", "poi_id": "spot-3", "poi_category": "spot", "description": "游览", "estimated_cost": 1}]}
+        ]
+      }
+    },
+    {
+      "id": "four_day_partial_weather",
+      "request": {"destination": "杭州", "start_date": "2026-10-13", "end_date": "2026-10-16", "budget": 100},
+      "weather": [
+        {"date": "2026-10-13", "condition": "晴", "low_celsius": 15, "high_celsius": 24},
+        {"date": "2026-10-15", "condition": "小雨", "low_celsius": 14, "high_celsius": 21}
+      ],
+      "weather_expectation": {"2026-10-15": "室内"},
+      "response": {
+        "destination": "杭州", "start_date": "2026-10-13", "end_date": "2026-10-16", "summary": "杭州四日游", "total_estimated_cost": 4,
+        "days": [
+          {"date": "2026-10-13", "title": "第一天", "activities": [{"time": "09:00", "name": "城市漫步", "description": "游览", "estimated_cost": 1}]},
+          {"date": "2026-10-14", "title": "第二天", "activities": [{"time": "09:00", "name": "文化之旅", "description": "参观", "estimated_cost": 1}]},
+          {"date": "2026-10-15", "title": "第三天", "activities": [{"time": "09:00", "name": "室内展馆", "description": "参观", "estimated_cost": 1}]},
+          {"date": "2026-10-16", "title": "第四天", "activities": [{"time": "09:00", "name": "老城路线", "description": "游览", "estimated_cost": 1}]}
+        ]
+      }
+    },
+    {
+      "id": "seven_day_unknown_weather",
+      "request": {"destination": "杭州", "start_date": "2026-10-13", "end_date": "2026-10-19", "budget": 100},
+      "weather": [],
+      "response": {
+        "destination": "杭州", "start_date": "2026-10-13", "end_date": "2026-10-19", "summary": "杭州七日游", "total_estimated_cost": 7,
+        "days": [
+          {"date": "2026-10-13", "title": "第一天", "activities": [{"time": "09:00", "name": "城市漫步一", "description": "游览", "estimated_cost": 1}]},
+          {"date": "2026-10-14", "title": "第二天", "activities": [{"time": "09:00", "name": "城市漫步二", "description": "游览", "estimated_cost": 1}]},
+          {"date": "2026-10-15", "title": "第三天", "activities": [{"time": "09:00", "name": "城市漫步三", "description": "游览", "estimated_cost": 1}]},
+          {"date": "2026-10-16", "title": "第四天", "activities": [{"time": "09:00", "name": "城市漫步四", "description": "游览", "estimated_cost": 1}]},
+          {"date": "2026-10-17", "title": "第五天", "activities": [{"time": "09:00", "name": "城市漫步五", "description": "游览", "estimated_cost": 1}]},
+          {"date": "2026-10-18", "title": "第六天", "activities": [{"time": "09:00", "name": "城市漫步六", "description": "游览", "estimated_cost": 1}]},
+          {"date": "2026-10-19", "title": "第七天", "activities": [{"time": "09:00", "name": "城市漫步七", "description": "游览", "estimated_cost": 1}]}
+        ]
+      }
+    }
+  ]
+}

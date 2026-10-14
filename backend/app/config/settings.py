@@ -18,6 +18,12 @@ if load_dotenv is not None:
 @dataclass(frozen=True)
 class Settings:
     agent_runtime: str = os.getenv("AGENT_RUNTIME", "legacy").strip().lower()
+    prompt_generation_version: str = os.getenv("PROMPT_GENERATION_VERSION", "").strip()
+    prompt_structured_repair_version: str = os.getenv(
+        "PROMPT_STRUCTURED_REPAIR_VERSION", "v1"
+    ).strip()
+    prompt_critic_repair_version: str = os.getenv("PROMPT_CRITIC_REPAIR_VERSION", "v1").strip()
+    prompt_day_edit_version: str = os.getenv("PROMPT_DAY_EDIT_VERSION", "v1").strip()
     trip_database_path: str = os.getenv("TRIP_DATABASE_PATH", "backend/data/trips.sqlite3")
     session_ttl_seconds: int = int(os.getenv("SESSION_TTL_SECONDS", str(7 * 24 * 60 * 60)))
     session_recent_turn_limit: int = int(os.getenv("SESSION_RECENT_TURN_LIMIT", "5"))

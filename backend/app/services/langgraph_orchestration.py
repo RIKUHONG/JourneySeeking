@@ -31,9 +31,10 @@ from backend.app.services.orchestration import (
     StepRecord,
     StepStatus,
 )
+from backend.app.services.prompt_registry import CRITIC_REPAIR, STRUCTURED_REPAIR
 from backend.app.services.trip_service import TripService
 
-GRAPH_VERSION = "trip-generation/v1"
+GRAPH_VERSION = "trip-generation/v2"
 DEFAULT_MAX_REPAIR_ATTEMPTS = 1
 DEFAULT_MAX_STEPS = 32
 
@@ -137,7 +138,12 @@ class LangGraphTripOrchestrator:
             "error_code": None,
             "error_message": None,
         }
-        result_state = self.graph.invoke(initial, config={"configurable": {"top_k": top_k}})
+        try:
+            result_state = self.graph.invoke(initial, config={"configurable": {"top_k": top_k}})
+        finally:
+            generator = self.trip_service.generator
+            if getattr(generator, "supports_prompt_repair", False):
+                generator.last_raw_content = ""
         self.last_state = result_state
 
         trace = tuple(result_state.get("trace", ()))
@@ -532,7 +538,13 @@ class LangGraphTripOrchestrator:
     def _generate_base(self, state: GraphState) -> dict[str, Any]:
         return self._generate_draft(state)
 
-    def _generate_draft(self, state: GraphState) -> dict[str, Any]:
+    def _generate_draft(
+        self,
+        state: GraphState,
+        *,
+        repair_kind: str | None = None,
+        repair_findings: tuple[dict[str, str], ...] = (),
+    ) -> dict[str, Any]:
         generator = self.trip_service.generator
         diagnostics = state.get("candidate_pool")
         trusted_pool = diagnostics if getattr(diagnostics, "meets_minimum", False) else None
@@ -543,6 +555,10 @@ class LangGraphTripOrchestrator:
                 candidate_pool=trusted_pool,
                 candidate_diagnostics=diagnostics,
                 planning_context=state.get("planning_context", {}),
+                allow_repair=False,
+                repair_kind=repair_kind,
+                repair_findings=repair_findings,
+                repair_failure_code=state.get("error_code") or "ITINERARY_VALIDATION_ERROR",
             )
         except Exception as exc:
             code = getattr(exc, "code", None) or type(exc).__name__
@@ -607,7 +623,7 @@ class LangGraphTripOrchestrator:
         return "failure"
 
     def _repair_structured_output(self, state: GraphState) -> dict[str, Any]:
-        return self._repair(state)
+        return self._repair(state, STRUCTURED_REPAIR)
 
     def _repair_with_critic_findings(self, state: GraphState) -> dict[str, Any]:
         report = state.get("critic_report")
@@ -623,12 +639,22 @@ class LangGraphTripOrchestrator:
             )
         planning_context = dict(state.get("planning_context", {}))
         planning_context["critic_findings"] = findings
-        return self._repair({**state, "planning_context": planning_context})
+        return self._repair(
+            {**state, "planning_context": planning_context},
+            CRITIC_REPAIR,
+            findings=findings,
+        )
 
-    def _repair(self, state: GraphState) -> dict[str, Any]:
+    def _repair(
+        self,
+        state: GraphState,
+        kind: str,
+        *,
+        findings: tuple[dict[str, str], ...] = (),
+    ) -> dict[str, Any]:
         attempts = state.get("repair_attempts", 0) + 1
         try:
-            updates = self._generate_draft(state)
+            updates = self._generate_draft(state, repair_kind=kind, repair_findings=findings)
         except _GraphFailure as exc:
             raise _GraphFailure(
                 exc.code,
@@ -717,11 +743,17 @@ class LangGraphTripOrchestrator:
                 )
         report = CriticReport(accepted=not findings, findings=tuple(findings))
         if not report.accepted:
+            marker = getattr(self.trip_service.generator, "mark_validation", None)
+            if callable(marker):
+                marker("critic_rejected", "CRITIC_REJECTED")
             raise _GraphFailure(
                 "CRITIC_REJECTED",
                 "行程未通过规则校验",
                 {"critic_report": report},
             )
+        marker = getattr(self.trip_service.generator, "mark_validation", None)
+        if callable(marker):
+            marker("accepted")
         return {"critic_report": report, "error_code": None, "error_message": None}
 
     def _route_after_critic(self, state: GraphState) -> str:

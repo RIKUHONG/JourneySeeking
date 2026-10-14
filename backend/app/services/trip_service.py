@@ -1,9 +1,10 @@
 """Validate generated itineraries before returning them from the API."""
 
+import inspect
 import json
 import logging
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from typing import Any, ClassVar, Protocol
 
@@ -26,6 +27,10 @@ class ItineraryGenerator(Protocol):
         candidate_pool: Any = None,
         planning_context: dict[str, Any] | None = None,
         candidate_diagnostics: Any = None,
+        allow_repair: bool = True,
+        repair_kind: str | None = None,
+        repair_findings: Sequence[Mapping[str, str]] = (),
+        repair_failure_code: str = "ITINERARY_VALIDATION_ERROR",
     ) -> str: ...
 
 
@@ -79,6 +84,10 @@ class TripService:
         candidate_pool: Any = None,
         planning_context: dict[str, Any] | None = None,
         candidate_diagnostics: Any = None,
+        allow_repair: bool = True,
+        repair_kind: str | None = None,
+        repair_findings: Sequence[Mapping[str, str]] = (),
+        repair_failure_code: str = "ITINERARY_VALIDATION_ERROR",
     ) -> Itinerary:
         """Generate and validate the base itinerary without optional enrichments."""
         try:
@@ -89,6 +98,23 @@ class TripService:
                 generator_kwargs["candidate_pool"] = candidate_pool
                 generator_kwargs["planning_context"] = planning_context
                 generator_kwargs["candidate_diagnostics"] = candidate_diagnostics
+            if getattr(self.generator, "supports_prompt_repair", False):
+                generator_kwargs.update(
+                    allow_repair=allow_repair,
+                    repair_kind=repair_kind,
+                    repair_findings=repair_findings,
+                    repair_failure_code=repair_failure_code,
+                )
+            signature = inspect.signature(self.generator.generate)
+            if not any(
+                parameter.kind is inspect.Parameter.VAR_KEYWORD
+                for parameter in signature.parameters.values()
+            ):
+                generator_kwargs = {
+                    key: value
+                    for key, value in generator_kwargs.items()
+                    if key in signature.parameters
+                }
             content = self.generator.generate(request, **generator_kwargs)
         except TimeoutError as exc:
             raise MomaTimeoutError() from exc
@@ -101,17 +127,27 @@ class TripService:
             raise
 
         if not isinstance(content, str) or not content.strip():
+            self._set_validation_paths(("root",))
+            self._mark_model_validation("rejected", "MOMA_INVALID_RESPONSE")
             raise MomaInvalidResponseError()
 
         try:
             payload = json.loads(content)
         except json.JSONDecodeError as exc:
+            self._set_validation_paths(("root",))
+            self._mark_model_validation("rejected", "MOMA_INVALID_RESPONSE")
             raise MomaInvalidResponseError() from exc
 
         required_fields = {
             name for name, field in Itinerary.model_fields.items() if field.is_required()
         }
         if not isinstance(payload, dict) or not required_fields.issubset(payload):
+            self._set_validation_paths(
+                tuple(sorted(required_fields - payload.keys()))
+                if isinstance(payload, dict)
+                else ("root",)
+            )
+            self._mark_model_validation("rejected", "MOMA_INVALID_RESPONSE")
             raise MomaInvalidResponseError()
 
         candidate_pool = getattr(self.generator, "last_candidate_pool", None)
@@ -128,11 +164,14 @@ class TripService:
                     {
                         "loc": list(error.get("loc", ())),
                         "type": error.get("type"),
-                        "msg": error.get("msg"),
                     }
                     for error in exc.errors()
                 ],
             )
+            self._set_validation_paths(
+                tuple(".".join(map(str, error["loc"])) for error in exc.errors())
+            )
+            self._mark_model_validation("rejected", "ITINERARY_VALIDATION_ERROR")
             raise ItineraryValidationError() from exc
 
         if candidate_pool is not None:
@@ -143,6 +182,8 @@ class TripService:
                 if activity.poi_id is not None
             ]
             if len(ids) != sum(len(day.activities) for day in itinerary.days):
+                self._set_validation_paths(("days.activities.poi_id",))
+                self._mark_model_validation("rejected", "ITINERARY_VALIDATION_ERROR")
                 raise ItineraryValidationError()
             try:
                 candidate_pool.validate_ids(ids)
@@ -152,6 +193,10 @@ class TripService:
                         if activity.poi_category != candidate.category.value:
                             raise ValueError("Planner returned a POI category mismatch")
             except ValueError as exc:
+                self._set_validation_paths(
+                    ("days.activities.poi_id", "days.activities.poi_category")
+                )
+                self._mark_model_validation("rejected", "ITINERARY_VALIDATION_ERROR")
                 raise ItineraryValidationError() from exc
 
         expected_dates = [
@@ -164,6 +209,8 @@ class TripService:
             or itinerary.end_date != request.end_date
             or [day.date for day in itinerary.days] != expected_dates
         ):
+            self._set_validation_paths(("destination", "start_date", "end_date", "days.date"))
+            self._mark_model_validation("rejected", "ITINERARY_VALIDATION_ERROR")
             raise ItineraryValidationError()
 
         activity_cost = math.fsum(
@@ -172,9 +219,22 @@ class TripService:
         if itinerary.total_estimated_cost < activity_cost and not math.isclose(
             itinerary.total_estimated_cost, activity_cost, rel_tol=0, abs_tol=1e-9
         ):
+            self._set_validation_paths(("total_estimated_cost",))
+            self._mark_model_validation("rejected", "ITINERARY_VALIDATION_ERROR")
             raise ItineraryValidationError()
 
+        self._mark_model_validation("structure_passed")
         return itinerary
+
+    def _mark_model_validation(self, status: str, code: str | None = None) -> None:
+        marker = getattr(self.generator, "mark_validation", None)
+        if callable(marker):
+            marker(status, code)
+
+    def _set_validation_paths(self, paths: Sequence[str]) -> None:
+        setter = getattr(self.generator, "set_validation_paths", None)
+        if callable(setter):
+            setter(paths)
 
     def enrich_map(self, itinerary: Itinerary) -> Itinerary:
         if self.map_enricher is None:

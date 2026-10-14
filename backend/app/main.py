@@ -111,12 +111,20 @@ def get_trip_service() -> TripService:
     from .services.itinerary_generator import ItineraryGenerator
     from .services.map_enrichment import MapEnrichmentService
     from .services.poi_candidates import PoiCategory, collect_candidate_pool
+    from .services.prompt_builder import PromptBuilder
+    from .services.prompt_registry import COMPAT_VERSION, P2_VERSION
     from .services.weather_enrichment import WeatherEnrichmentService
 
     map_client = AmapClient(config=settings)
     return TripService(
         ItineraryGenerator(
             client=MomaClient(),
+            prompt_builder=PromptBuilder(
+                settings.prompt_generation_version
+                or (COMPAT_VERSION if settings.agent_runtime == "langgraph" else P2_VERSION)
+            ),
+            structured_repair_version=settings.prompt_structured_repair_version,
+            critic_repair_version=settings.prompt_critic_repair_version,
             candidate_provider=lambda request: collect_candidate_pool(
                 map_client,
                 request.destination,
@@ -183,7 +191,7 @@ def get_trip_edit_service(
     map_client = AmapClient(config=settings)
     return TripEditService(
         repository,
-        MomaDayEditor(MomaClient()),
+        MomaDayEditor(MomaClient(), prompt_version=settings.prompt_day_edit_version),
         candidate_provider=lambda destination: collect_candidate_pool(map_client, destination),
         image_enricher=ImageEnrichmentService(map_client),
     )
@@ -400,11 +408,25 @@ def generate_trip(
     if not isinstance(orchestrator, (TripOrchestrator, LangGraphTripOrchestrator)):
         return orchestrator.generate(request)
     if isinstance(orchestrator, LangGraphTripOrchestrator):
+        generator = orchestrator.trip_service.generator
+        if hasattr(generator, "set_execution_context"):
+            generator.set_execution_context(
+                request_id=_request_id(http_request),
+                runtime="langgraph",
+                graph_version=orchestrator.graph_version,
+            )
         result = orchestrator.run(request, request_id=_request_id(http_request))
     else:
+        generator = orchestrator.trip_service.generator
+        if hasattr(generator, "set_execution_context"):
+            generator.set_execution_context(
+                request_id=_request_id(http_request), runtime="legacy", graph_version="legacy"
+            )
         result = orchestrator.run(request)
+    from .services.model_call_metadata import summarize_calls
+
     logger.info(
-        "orchestration_completed request_id=%s steps=%s trace=%s poi_verified_rate=%s route_verified_rate=%s token_usage=%s",
+        "orchestration_completed request_id=%s steps=%s trace=%s poi_verified_rate=%s route_verified_rate=%s model_calls=%s",
         _request_id(http_request),
         len(result.trace),
         [(step.name, step.status.value, round(step.duration_ms, 2)) for step in result.trace],
@@ -418,7 +440,7 @@ def generate_trip(
             "route_verified_rate",
             None,
         ),
-        getattr(orchestrator.trip_service.generator, "last_usage", {}),
+        summarize_calls(getattr(orchestrator.trip_service.generator, "call_records", ())),
     )
     return result.itinerary
 
@@ -454,8 +476,11 @@ def get_trip(
 def edit_trip(
     trip_id: str,
     request: TripEditRequest,
+    http_request: Request,
     service: TripEditService = Depends(get_trip_edit_service),  # noqa: B008
 ) -> TripEditResponse:
+    if isinstance(service.editor, MomaDayEditor):
+        service.editor.request_id = _request_id(http_request)
     return service.edit(trip_id, request)
 
 
