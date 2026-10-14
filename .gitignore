@@ -17,6 +17,7 @@ repo_inspect_20260923/
 backend/.venv/
 backend/data/*.sqlite3
 backend/manual_e2e.py
+backend/eval/captures/
 
 # Frontend local dependencies and build output
 frontend/node_modules/

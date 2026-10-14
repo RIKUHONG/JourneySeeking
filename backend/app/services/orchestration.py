@@ -302,6 +302,9 @@ class TripOrchestrator:
             lambda: self.critic.review(request, itinerary, trusted_poi_ids=trusted_ids),
         )
         if not report.accepted:
+            marker = getattr(self.trip_service.generator, "mark_validation", None)
+            if callable(marker):
+                marker("critic_rejected", "CRITIC_REJECTED")
             previous = trace[-1]
             trace[-1] = StepRecord(
                 previous.name,
@@ -312,6 +315,9 @@ class TripOrchestrator:
                 "critic_rejected",
             )
             raise CriticRejectedError(report, tuple(trace))
+        marker = getattr(self.trip_service.generator, "mark_validation", None)
+        if callable(marker):
+            marker("accepted")
         return OrchestrationResult(itinerary, tuple(trace), report, chunks)
 
     def _step(

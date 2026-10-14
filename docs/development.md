@@ -30,6 +30,8 @@ P2 的 A/B/C 分工、指定分支、依赖和验收见 [P2 Issue 清单](p2-iss
 
 `MapService`、`WeatherService` 的接口及错误类型在 `backend/app/integrations/`；`MapEnrichmentService` 和 `WeatherEnrichmentService` 已进入生成链路。P2 历史天气适配器来自高德，技术上限为 4 天。P3-02 的 Open-Meteo 适配器使用请求日期范围（最多 7 天），城市坐标由高德地理编码提供；缺失日期仍为 `unknown`。LangGraph 在基础生成前读取天气，legacy 仍在生成后查询，但两条路径的天气事实均来自 Open-Meteo。`/api/chat` 仍是普通消息转发，不保存行程状态。
 
+P3-03 Prompt 版本可用 `PROMPT_GENERATION_VERSION` 独立选择；留空时 legacy 使用 `v1`、langgraph 使用 `p3-02-compat`。`v2` 保持可选，切版门槛见 [P3-03 任务流程](p3-03-task-flow.md)。结构修复、Critic 修复和单日编辑的版本变量见 `backend/.env.example`。离线三版本回放运行 `python -m backend.eval.prompt_ab`；合成 fixture 只验证契约，不能证明真实模型效果或延迟。
+
 P2-02 的城市解析和候选池位于 `backend/app/services/city_resolution.py` 与 `poi_candidates.py`。候选池默认要求景点、餐饮、住宿各至少一个可信候选；候选缺少 ID/坐标、显式城市不匹配、分类不足或地图失败时记录诊断并让生成链路回退到基础行程。生成器保留 `last_candidate_diagnostics` 供后续编排读取，但只把达到门槛的池放入模型约束和 POI ID 校验。新增候选规则应先补充 `backend/tests/api/test_city_candidates.py`，不能在测试中使用真实 Key。
 
 新后端模块添加对应离线测试。前端从 P2-01 契约 mock 开发，最终按 OpenAPI 接口集成。不得提交密钥、真实用户数据、本地数据库或根目录下的 `helloagents-trip-planner/` 参考项目。

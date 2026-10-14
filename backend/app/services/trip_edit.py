@@ -5,24 +5,26 @@ from __future__ import annotations
 import json
 import logging
 import math
+import time
 from collections.abc import Callable, Mapping, Sequence
-from datetime import date
-from typing import Any, ClassVar, Literal, Protocol
+from dataclasses import replace
+from typing import Any, ClassVar, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import ValidationError
 
 from backend.app.models.schemas import (
-    Activity,
     DayPlan,
     Itinerary,
-    Money,
-    NonEmptyText,
     TripEditRequest,
     TripEditResponse,
     TripRequest,
 )
 from backend.app.services.image_enrichment import ImageEnrichmentService
+from backend.app.services.model_call_metadata import ModelCallRecord, make_record
 from backend.app.services.orchestration import ItineraryCritic
+from backend.app.services.prompt_builder import build_day_edit_messages
+from backend.app.services.prompt_registry import DAY_EDIT, get_prompt
+from backend.app.services.prompt_schemas import DayEditDraft
 from backend.app.storage import TripVersionConflictError
 from backend.app.storage.repository import TripRepository
 
@@ -51,38 +53,6 @@ class TripEditTimeoutError(TripEditError):
 class InvalidEditDateError(TripEditError):
     code = "INVALID_TRIP_REQUEST"
     message = "编辑日期不在当前行程中"
-
-
-class ActivityEditDraft(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    time: str = Field(pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
-    name: NonEmptyText
-    description: str
-    location: str | None = None
-    duration_minutes: int | None = Field(default=None, strict=True, gt=0)
-    estimated_cost: Money
-    poi_id: str | None = None
-    poi_category: Literal["spot", "meal", "hotel"] | None = None
-
-
-class DayEditDraft(BaseModel):
-    """The only shape the model may change."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    date: date
-    title: NonEmptyText
-    activities: list[ActivityEditDraft]
-
-    def as_day(self, current: DayPlan) -> DayPlan:
-        return DayPlan(
-            date=self.date,
-            title=self.title,
-            activities=[Activity.model_validate(item.model_dump()) for item in self.activities],
-            weather=current.weather,
-            weather_advice=current.weather_advice,
-        )
 
 
 _SERVER_DERIVED_ACTIVITY_FIELDS = frozenset(
@@ -114,8 +84,11 @@ class DayEditor(Protocol):
 class MomaDayEditor:
     """MoMA adapter that requests one JSON day and exposes no storage concerns."""
 
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: Any, *, prompt_version: str = "v1") -> None:
         self.client = client
+        self.prompt_version = get_prompt(DAY_EDIT, prompt_version).version
+        self.call_records: list[ModelCallRecord] = []
+        self.request_id: str | None = None
 
     def edit(
         self,
@@ -146,30 +119,66 @@ class MomaDayEditor:
             "allowed_pois": candidate_payload,
             "recent_session_context": list(session_context),
         }
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "你是单日行程编辑器。只返回一个 JSON 对象，且只能包含 date、title、"
-                    "activities。不得返回或修改目的地、日期范围、其他日期、天气或总费用。"
-                    "有 POI 候选时只能使用 allowed_pois 中的 poi_id。不得输出 Markdown 或解释。"
-                ),
-            },
-            {
-                "role": "user",
-                "content": json.dumps(context, ensure_ascii=False, separators=(",", ":")),
-            },
-        ]
+        messages = build_day_edit_messages(context, version=self.prompt_version)
+        spec = get_prompt(DAY_EDIT, self.prompt_version)
+        started = time.perf_counter()
         try:
             response = self.client.chat(messages)
         except Exception as exc:
+            timeout = _is_timeout(exc)
+            self.call_records = [
+                make_record(
+                    prompt_key=spec.key,
+                    schema_version=spec.schema_version,
+                    model=None,
+                    duration_ms=(time.perf_counter() - started) * 1000,
+                    usage=None,
+                    validation="failed",
+                    failure_code="MOMA_TIMEOUT" if timeout else "MOMA_PROVIDER_ERROR",
+                    candidate_count=len(candidates),
+                    request_id=self.request_id,
+                    runtime="edit",
+                    graph_version="trip-edit/v1",
+                )
+            ]
+            logger.info(
+                "day_edit_model_call request_id=%s metadata=%s",
+                self.request_id,
+                self.call_records[-1].as_log_fields(),
+            )
             if _is_timeout(exc):
                 raise TripEditTimeoutError() from exc
             raise
+        self.call_records = [
+            make_record(
+                prompt_key=spec.key,
+                schema_version=spec.schema_version,
+                model=getattr(response, "model", None),
+                duration_ms=(time.perf_counter() - started) * 1000,
+                usage=getattr(response, "usage", None),
+                validation="received",
+                candidate_count=len(candidates),
+                request_id=self.request_id,
+                runtime="edit",
+                graph_version="trip-edit/v1",
+            )
+        ]
         content = getattr(response, "content", response)
         if not isinstance(content, str):
+            self.mark_validation("rejected", "EDITOR_RESPONSE_NOT_TEXT")
             raise TripEditError(reason="editor_response_not_text")
         return content
+
+    def mark_validation(self, status: str, code: str | None = None) -> None:
+        if self.call_records:
+            self.call_records[-1] = replace(
+                self.call_records[-1], validation=status, failure_code=code
+            )
+            logger.info(
+                "day_edit_model_validation request_id=%s metadata=%s",
+                self.request_id,
+                self.call_records[-1].as_log_fields(),
+            )
 
 
 class TripEditService:
@@ -195,6 +204,26 @@ class TripEditService:
         *,
         session_context: Sequence[Mapping[str, Any]] = (),
     ) -> TripEditResponse:
+        if isinstance(self.editor, MomaDayEditor):
+            self.editor.call_records = []
+        try:
+            return self._edit_impl(trip_id, request, session_context=session_context)
+        except TripEditError:
+            if (
+                isinstance(self.editor, MomaDayEditor)
+                and self.editor.call_records
+                and self.editor.call_records[-1].validation not in {"rejected", "failed"}
+            ):
+                self.editor.mark_validation("rejected", "EDIT_RULE_REJECTED")
+            raise
+
+    def _edit_impl(
+        self,
+        trip_id: str,
+        request: TripEditRequest,
+        *,
+        session_context: Sequence[Mapping[str, Any]] = (),
+    ) -> TripEditResponse:
         current = self.repository.get_current(trip_id)
         if current.version != request.expected_version:
             raise TripVersionConflictError(trip_id)
@@ -212,7 +241,14 @@ class TripEditService:
             candidates=candidates,
             session_context=session_context,
         )
-        draft = self._parse_draft(raw_draft)
+        try:
+            draft = self._parse_draft(raw_draft)
+        except TripEditError:
+            if isinstance(self.editor, MomaDayEditor):
+                self.editor.mark_validation("rejected", "DRAFT_INVALID")
+            raise
+        if isinstance(self.editor, MomaDayEditor):
+            self.editor.mark_validation("schema_passed")
         if draft.date != request.date:
             raise TripEditError(reason="draft_date_mismatch")
 
@@ -252,6 +288,8 @@ class TripEditService:
             self.image_enricher.enrich_day(edited_day, used_urls=used_urls)
 
         saved = self.repository.save_version(updated, expected_version=request.expected_version)
+        if isinstance(self.editor, MomaDayEditor):
+            self.editor.mark_validation("accepted")
         return TripEditResponse(
             trip_id=trip_id,
             version=saved.version,
@@ -275,22 +313,14 @@ class TripEditService:
             return DayEditDraft.model_validate(payload)
         except ValidationError as exc:
             if isinstance(raw, str):
-                logger.debug(
-                    "MoMA day edit response schema rejected chars=%d preview=%r",
-                    len(raw),
-                    raw[:500],
-                )
+                logger.debug("MoMA day edit response schema rejected chars=%d", len(raw))
             details = [
                 {"loc": error.get("loc"), "type": error.get("type")} for error in exc.errors()
             ]
             raise TripEditError(reason="draft_schema_invalid", details=details) from exc
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
             if isinstance(raw, str):
-                logger.debug(
-                    "MoMA day edit response parse rejected chars=%d preview=%r",
-                    len(raw),
-                    raw[:500],
-                )
+                logger.debug("MoMA day edit response parse rejected chars=%d", len(raw))
             raise TripEditError(reason="draft_parse_failed") from exc
 
     @staticmethod
